@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 
 import { supabase } from '../lib/supabase';
 
@@ -19,7 +19,7 @@ export default function SignupScreen() {
     try {
       setLoading(true);
 
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
@@ -34,19 +34,8 @@ export default function SignupScreen() {
         return;
       }
 
-      if (data.user) {
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: data.user.id,
-          full_name: fullName.trim(),
-        });
-
-        if (profileError) {
-          Alert.alert('Profile error', profileError.message);
-          return;
-        }
-      }
-
-      Alert.alert('Success', 'Account created. You can now sign in.');
+      Alert.alert('Success', 'Account created. Please sign in.');
+      router.replace('/login');
     } catch (err) {
       Alert.alert('Error', 'Something went wrong while creating your account.');
     } finally {

@@ -60,6 +60,8 @@ export default function RootLayout() {
 
       <Stack.Protected guard={!!session}>
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="household/create" />
+        <Stack.Screen name="tasks/new" />
       </Stack.Protected>
     </Stack>
   );
