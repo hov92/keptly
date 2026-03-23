@@ -62,6 +62,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="household/create" />
         <Stack.Screen name="tasks/new" />
+        <Stack.Screen name="tasks/[id]" />
+        <Stack.Screen name="tasks/edit/[id]" />
       </Stack.Protected>
     </Stack>
   );

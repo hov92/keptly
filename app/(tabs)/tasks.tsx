@@ -34,7 +34,6 @@ export default function TasksScreen() {
 
       if (!householdId) {
         setTasks([]);
-        setLoading(false);
         return;
       }
 
@@ -46,7 +45,6 @@ export default function TasksScreen() {
 
       if (error) {
         console.error(error.message);
-        setLoading(false);
         return;
       }
 
@@ -71,19 +69,22 @@ export default function TasksScreen() {
       .eq('id', task.id);
 
     if (error) {
-      return AlertLike('Update failed', error.message);
+      console.error(error.message);
+      return;
     }
 
     loadTasks();
   }
 
-  function AlertLike(title: string, message: string) {
-    console.error(title, message);
-  }
+  const openTasks = tasks.filter((task) => !task.is_completed);
+  const completedTasks = tasks.filter((task) => task.is_completed);
 
   function renderTask({ item }: { item: Task }) {
     return (
-      <View style={[styles.card, item.is_completed && styles.cardCompleted]}>
+      <Pressable
+        onPress={() => router.push(`/tasks/${item.id}`)}
+        style={[styles.card, item.is_completed && styles.cardCompleted]}
+      >
         <View style={styles.cardTop}>
           <View style={{ flex: 1 }}>
             <Text
@@ -99,9 +100,9 @@ export default function TasksScreen() {
               <Text style={styles.metaText}>Category: {item.category}</Text>
             )}
 
-            {!!item.due_date && (
-              <Text style={styles.metaText}>Due: {item.due_date}</Text>
-            )}
+            <Text style={styles.metaText}>
+              {item.due_date ? `Due: ${item.due_date}` : 'No due date'}
+            </Text>
           </View>
 
           <Pressable
@@ -117,11 +118,11 @@ export default function TasksScreen() {
                 item.is_completed && styles.statusButtonTextDone,
               ]}
             >
-              {item.is_completed ? 'Done' : 'Mark Done'}
+              {item.is_completed ? 'Undo' : 'Done'}
             </Text>
           </Pressable>
         </View>
-      </View>
+      </Pressable>
     );
   }
 
@@ -133,7 +134,10 @@ export default function TasksScreen() {
           <Text style={styles.subtitle}>Your household task list</Text>
         </View>
 
-        <Pressable style={styles.addButton} onPress={() => router.push('/tasks/new')}>
+        <Pressable
+          style={styles.addButton}
+          onPress={() => router.push('/tasks/new')}
+        >
           <Text style={styles.addButtonText}>+ Add</Text>
         </Pressable>
       </View>
@@ -158,9 +162,21 @@ export default function TasksScreen() {
         </View>
       ) : (
         <FlatList
-          data={tasks}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTask}
+          data={[{ type: 'open' }, ...openTasks, { type: 'completed' }, ...completedTasks]}
+          keyExtractor={(item, index) =>
+            'type' in item ? `${item.type}-${index}` : item.id
+          }
+          renderItem={({ item }) => {
+            if ('type' in item) {
+              return (
+                <Text style={styles.sectionTitle}>
+                  {item.type === 'open' ? 'Open Tasks' : 'Completed Tasks'}
+                </Text>
+              );
+            }
+
+            return renderTask({ item });
+          }}
           contentContainerStyle={{ paddingBottom: 24 }}
           showsVerticalScrollIndicator={false}
         />
@@ -230,6 +246,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
     fontSize: 15,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F1F1F',
+    marginBottom: 10,
+    marginTop: 8,
   },
   card: {
     backgroundColor: '#FFFFFF',
