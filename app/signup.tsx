@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Link, router } from 'expo-router';
+import { Alert, Pressable, StyleSheet, Text } from 'react-native';
+import { router } from 'expo-router';
 
 import { supabase } from '../lib/supabase';
+import { AppScreen } from '../components/app-screen';
+import { FormInput } from '../components/form-input';
+import { COLORS, RADIUS } from '../constants/theme';
 
 export default function SignupScreen() {
   const [fullName, setFullName] = useState('');
@@ -11,7 +14,7 @@ export default function SignupScreen() {
   const [loading, setLoading] = useState(false);
 
   async function handleSignup() {
-    if (!fullName || !email || !password) {
+    if (!fullName.trim() || !email.trim() || !password.trim()) {
       Alert.alert('Missing info', 'Fill out all fields.');
       return;
     }
@@ -19,7 +22,7 @@ export default function SignupScreen() {
     try {
       setLoading(true);
 
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
@@ -34,98 +37,104 @@ export default function SignupScreen() {
         return;
       }
 
+      const userId = data.user?.id;
+
+      if (userId) {
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: userId,
+          full_name: fullName.trim(),
+        });
+
+        if (profileError) {
+          Alert.alert('Profile error', profileError.message);
+          return;
+        }
+      }
+
       Alert.alert('Success', 'Account created. Please sign in.');
       router.replace('/login');
-    } catch (err) {
-      Alert.alert('Error', 'Something went wrong while creating your account.');
+    } catch {
+      Alert.alert('Error', 'Something went wrong creating your account.');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <View style={styles.container}>
+    <AppScreen>
       <Text style={styles.title}>Create account</Text>
-      <Text style={styles.subtitle}>Start organizing your home with Keptly</Text>
+      <Text style={styles.subtitle}>
+        Start organizing your home with Keptly
+      </Text>
 
-      <TextInput
-        style={styles.input}
+      <FormInput
         placeholder="Full name"
         value={fullName}
         onChangeText={setFullName}
+        returnKeyType="done"
       />
 
-      <TextInput
-        style={styles.input}
+      <FormInput
         placeholder="Email"
-        autoCapitalize="none"
-        keyboardType="email-address"
         value={email}
         onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        returnKeyType="done"
       />
 
-      <TextInput
-        style={styles.input}
+      <FormInput
         placeholder="Password"
-        secureTextEntry
         value={password}
         onChangeText={setPassword}
+        secureTextEntry
+        returnKeyType="done"
       />
 
       <Pressable style={styles.button} onPress={handleSignup} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Creating...' : 'Create Account'}</Text>
+        <Text style={styles.buttonText}>
+          {loading ? 'Creating...' : 'Create Account'}
+        </Text>
       </Pressable>
 
-      <Link href="/login" style={styles.link}>
-        Already have an account? Sign in
-      </Link>
-    </View>
+      <Pressable onPress={() => router.replace('/login')} style={styles.linkWrap}>
+        <Text style={styles.link}>Already have an account? Sign in</Text>
+      </Pressable>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6F2',
-    padding: 24,
-    justifyContent: 'center',
-  },
   title: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '700',
-    color: '#1F1F1F',
+    color: COLORS.text,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#5F6368',
+    color: COLORS.muted,
     marginBottom: 24,
   },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E6E0D8',
-  },
   button: {
-    backgroundColor: '#264653',
-    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 8,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: COLORS.primaryText,
     fontSize: 16,
     fontWeight: '600',
   },
+  linkWrap: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
   link: {
-    marginTop: 18,
-    color: '#2A9D8F',
-    textAlign: 'center',
-    fontSize: 15,
+    color: COLORS.accent,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

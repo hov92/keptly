@@ -11,16 +11,23 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { supabase } from '../../../lib/supabase';
 import { CategoryPicker } from '../../../components/category-picker';
+import { AssigneePicker } from '../../../components/assignee-picker';
 import { TASK_CATEGORIES } from '../../../constants/categories';
 import {
   getMergedTaskCategories,
   saveCustomTaskCategory,
 } from '../../../lib/categories';
+import { getHouseholdMemberOptions } from '../../../lib/household-members';
 import { AppScreen } from '../../../components/app-screen';
 import { FormInput } from '../../../components/form-input';
 import { DateField } from '../../../components/date-field';
 import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../../constants/theme';
+
+type AssigneeOption = {
+  label: string;
+  value: string;
+};
 
 export default function EditTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -30,6 +37,8 @@ export default function EditTaskScreen() {
   const [categoryOptions, setCategoryOptions] = useState<string[]>([
     ...TASK_CATEGORIES,
   ]);
+  const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
+  const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,13 +47,14 @@ export default function EditTaskScreen() {
 
   useEffect(() => {
     getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
+    getHouseholdMemberOptions().then(setAssigneeOptions).catch(console.error);
   }, []);
 
   useEffect(() => {
     async function loadTask() {
       const { data, error } = await supabase
         .from('tasks')
-        .select('title, category, due_date')
+        .select('title, category, due_date, assigned_to')
         .eq('id', id)
         .single();
 
@@ -65,6 +75,7 @@ export default function EditTaskScreen() {
       setCategory(isPreset ? loadedCategory : 'Other');
       setCustomCategory(isPreset ? '' : loadedCategory);
       setDueDate(data.due_date ?? null);
+      setAssignedTo(data.assigned_to ?? '');
       setLoading(false);
     }
 
@@ -95,6 +106,7 @@ export default function EditTaskScreen() {
           title: title.trim(),
           category: finalCategory,
           due_date: dueDate,
+          assigned_to: assignedTo || null,
         })
         .eq('id', id);
 
@@ -160,6 +172,14 @@ export default function EditTaskScreen() {
           returnKeyType="done"
         />
       ) : null}
+
+      <AssigneePicker
+        label="Assign to"
+        value={assignedTo}
+        onChange={setAssignedTo}
+        options={assigneeOptions}
+        placeholder="Unassigned"
+      />
 
       <DateField label="Due date" value={dueDate} onChange={setDueDate} />
 

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -9,9 +10,10 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
-import { Screen } from '../../components/screen';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { AppScreen } from '../../components/app-screen';
+import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 
 type Task = {
   id: string;
@@ -19,7 +21,10 @@ type Task = {
   category: string | null;
   due_date: string | null;
   is_completed: boolean;
-  created_at: string;
+  assigned_to: string | null;
+  profiles?: {
+    full_name: string | null;
+  } | null;
 };
 
 export default function TasksScreen() {
@@ -33,22 +38,24 @@ export default function TasksScreen() {
       const householdId = await getCurrentHouseholdId();
 
       if (!householdId) {
-        setTasks([]);
+        router.replace('/household/create');
         return;
       }
 
       const { data, error } = await supabase
         .from('tasks')
-        .select('id, title, category, due_date, is_completed, created_at')
+        .select(
+          'id, title, category, due_date, is_completed, assigned_to, profiles!tasks_assigned_to_fkey(full_name)'
+        )
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error(error.message);
+        Alert.alert('Load failed', error.message);
         return;
       }
 
-      setTasks((data ?? []) as Task[]);
+      setTasks((data ?? []) as unknown as Task[]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -69,236 +76,187 @@ export default function TasksScreen() {
       .eq('id', task.id);
 
     if (error) {
-      console.error(error.message);
+      Alert.alert('Update failed', error.message);
       return;
     }
 
     loadTasks();
   }
 
-  const openTasks = tasks.filter((task) => !task.is_completed);
-  const completedTasks = tasks.filter((task) => task.is_completed);
+  function renderItem({ item }: { item: Task }) {
+    const assignee = item.profiles?.full_name || null;
 
-  function renderTask({ item }: { item: Task }) {
     return (
       <Pressable
+        style={styles.card}
         onPress={() => router.push(`/tasks/${item.id}`)}
-        style={[styles.card, item.is_completed && styles.cardCompleted]}
       >
         <View style={styles.cardTop}>
-          <View style={{ flex: 1 }}>
-            <Text
-              style={[
-                styles.taskTitle,
-                item.is_completed && styles.taskTitleCompleted,
-              ]}
-            >
-              {item.title}
-            </Text>
-
-            {!!item.category && (
-              <Text style={styles.metaText}>Category: {item.category}</Text>
-            )}
-
-            <Text style={styles.metaText}>
-              {item.due_date ? `Due: ${item.due_date}` : 'No due date'}
-            </Text>
-          </View>
+          <Text
+            style={[
+              styles.taskTitle,
+              item.is_completed && styles.taskTitleDone,
+            ]}
+          >
+            {item.title}
+          </Text>
 
           <Pressable
             style={[
-              styles.statusButton,
-              item.is_completed && styles.statusButtonDone,
+              styles.statusPill,
+              item.is_completed ? styles.donePill : styles.openPill,
             ]}
             onPress={() => toggleComplete(item)}
           >
             <Text
               style={[
-                styles.statusButtonText,
-                item.is_completed && styles.statusButtonTextDone,
+                styles.statusText,
+                item.is_completed ? styles.doneText : styles.openText,
               ]}
             >
-              {item.is_completed ? 'Undo' : 'Done'}
+              {item.is_completed ? 'Done' : 'Open'}
             </Text>
           </Pressable>
         </View>
+
+        {item.category ? (
+          <Text style={styles.meta}>Category: {item.category}</Text>
+        ) : null}
+
+        {item.due_date ? (
+          <Text style={styles.meta}>Due: {item.due_date}</Text>
+        ) : null}
+
+        <Text style={styles.meta}>Assigned to: {assignee || 'Unassigned'}</Text>
       </Pressable>
     );
   }
 
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
   return (
-    <Screen>
+    <AppScreen>
       <View style={styles.headerRow}>
         <View>
           <Text style={styles.title}>Tasks</Text>
-          <Text style={styles.subtitle}>Your household task list</Text>
+          <Text style={styles.subtitle}>Manage household tasks.</Text>
         </View>
 
-        <Pressable
-          style={styles.addButton}
-          onPress={() => router.push('/tasks/new')}
-        >
-          <Text style={styles.addButtonText}>+ Add</Text>
+        <Pressable style={styles.addButton} onPress={() => router.push('/tasks/new')}>
+          <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
       </View>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" />
-        </View>
-      ) : tasks.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyTitle}>No tasks yet</Text>
-          <Text style={styles.emptyText}>
-            Add your first household task to get started.
-          </Text>
-
-          <Pressable
-            style={styles.primaryButton}
-            onPress={() => router.push('/tasks/new')}
-          >
-            <Text style={styles.primaryButtonText}>Add Task</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <FlatList
-          data={[{ type: 'open' }, ...openTasks, { type: 'completed' }, ...completedTasks]}
-          keyExtractor={(item, index) =>
-            'type' in item ? `${item.type}-${index}` : item.id
-          }
-          renderItem={({ item }) => {
-            if ('type' in item) {
-              return (
-                <Text style={styles.sectionTitle}>
-                  {item.type === 'open' ? 'Open Tasks' : 'Completed Tasks'}
-                </Text>
-              );
-            }
-
-            return renderTask({ item });
-          }}
-          contentContainerStyle={{ paddingBottom: 24 }}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-    </Screen>
+      <FlatList
+        data={tasks}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        scrollEnabled={false}
+        ListEmptyComponent={
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No tasks yet.</Text>
+          </View>
+        }
+      />
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: SPACING.lg,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#1F1F1F',
+    color: COLORS.text,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
-    color: '#5F6368',
+    color: COLORS.muted,
   },
   addButton: {
-    backgroundColor: '#264653',
-    borderRadius: 999,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   addButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    fontSize: 22,
+    color: COLORS.primaryText,
     fontWeight: '700',
-    color: '#1F1F1F',
-    marginBottom: 8,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#5F6368',
-    marginBottom: 18,
-    fontSize: 15,
-  },
-  primaryButton: {
-    backgroundColor: '#264653',
-    borderRadius: 12,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F1F1F',
-    marginBottom: 10,
-    marginTop: 8,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-  },
-  cardCompleted: {
-    opacity: 0.75,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   cardTop: {
     flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    marginBottom: 8,
+    alignItems: 'flex-start',
   },
   taskTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F1F1F',
-    marginBottom: 6,
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '700',
+    color: COLORS.text,
   },
-  taskTitleCompleted: {
+  taskTitleDone: {
+    color: COLORS.muted,
     textDecorationLine: 'line-through',
-    color: '#5F6368',
   },
-  metaText: {
+  meta: {
     fontSize: 14,
-    color: '#5F6368',
-    marginBottom: 2,
+    color: COLORS.muted,
+    marginBottom: 4,
   },
-  statusButton: {
-    borderWidth: 1,
-    borderColor: '#264653',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  statusButtonDone: {
-    backgroundColor: '#264653',
+  donePill: {
+    backgroundColor: COLORS.accentSoft,
   },
-  statusButtonText: {
-    color: '#264653',
-    fontWeight: '600',
-    fontSize: 13,
+  openPill: {
+    backgroundColor: '#EEF2F6',
   },
-  statusButtonTextDone: {
-    color: '#FFFFFF',
+  statusText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  doneText: {
+    color: COLORS.accent,
+  },
+  openText: {
+    color: COLORS.text,
+  },
+  emptyCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  emptyText: {
+    color: COLORS.muted,
+    fontSize: 15,
   },
 });

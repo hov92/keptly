@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Link } from 'expo-router';
+import { Alert, Pressable, StyleSheet, Text } from 'react-native';
+import { router } from 'expo-router';
 
 import { supabase } from '../lib/supabase';
+import { AppScreen } from '../components/app-screen';
+import { FormInput } from '../components/form-input';
+import { COLORS, RADIUS } from '../constants/theme';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -10,7 +13,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   async function handleLogin() {
-    if (!email || !password) {
+    if (!email.trim() || !password.trim()) {
       Alert.alert('Missing info', 'Enter your email and password.');
       return;
     }
@@ -25,90 +28,83 @@ export default function LoginScreen() {
 
       if (error) {
         Alert.alert('Login failed', error.message);
+        return;
       }
-    } catch (err) {
-      Alert.alert('Error', 'Something went wrong while signing in.');
+
+      router.replace('/');
+    } catch {
+      Alert.alert('Error', 'Something went wrong signing you in.');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <View style={styles.container}>
+    <AppScreen>
       <Text style={styles.title}>Keptly</Text>
       <Text style={styles.subtitle}>Sign in to your account</Text>
 
-      <TextInput
-        style={styles.input}
+      <FormInput
         placeholder="Email"
-        autoCapitalize="none"
-        keyboardType="email-address"
         value={email}
         onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        returnKeyType="done"
       />
 
-      <TextInput
-        style={styles.input}
+      <FormInput
         placeholder="Password"
-        secureTextEntry
         value={password}
         onChangeText={setPassword}
+        secureTextEntry
+        returnKeyType="done"
       />
 
       <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
+        <Text style={styles.buttonText}>
+          {loading ? 'Signing in...' : 'Sign In'}
+        </Text>
       </Pressable>
 
-      <Link href="/signup" style={styles.link}>
-        Don&apos;t have an account? Sign up
-      </Link>
-    </View>
+      <Pressable onPress={() => router.replace('/signup')} style={styles.linkWrap}>
+        <Text style={styles.link}>Don&apos;t have an account? Sign up</Text>
+      </Pressable>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6F2',
-    padding: 24,
-    justifyContent: 'center',
-  },
   title: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '700',
-    color: '#1F1F1F',
+    color: COLORS.text,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#5F6368',
+    color: COLORS.muted,
     marginBottom: 24,
   },
-  input: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E6E0D8',
-  },
   button: {
-    backgroundColor: '#264653',
-    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 8,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: COLORS.primaryText,
     fontSize: 16,
     fontWeight: '600',
   },
+  linkWrap: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
   link: {
-    marginTop: 18,
-    color: '#2A9D8F',
-    textAlign: 'center',
-    fontSize: 15,
+    color: COLORS.accent,
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

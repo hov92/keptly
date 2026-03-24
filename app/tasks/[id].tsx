@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,32 +7,37 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 import { supabase } from '../../lib/supabase';
-import { addTaskToDeviceCalendar } from '../../lib/deviceCalendar';
+import { AppScreen } from '../../components/app-screen';
+import { FormScreenHeader } from '../../components/form-screen-header';
+import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 
-type Task = {
+type TaskDetail = {
   id: string;
   title: string;
   category: string | null;
   due_date: string | null;
   is_completed: boolean;
-  created_at: string;
+  assigned_to: string | null;
+  profiles?: {
+    full_name: string | null;
+  } | null;
 };
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [task, setTask] = useState<Task | null>(null);
+  const [task, setTask] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadTask() {
-    try {
-      setLoading(true);
-
+  useEffect(() => {
+    async function loadTask() {
       const { data, error } = await supabase
         .from('tasks')
-        .select('id, title, category, due_date, is_completed, created_at')
+        .select(
+          'id, title, category, due_date, is_completed, assigned_to, profiles!tasks_assigned_to_fkey(full_name)'
+        )
         .eq('id', id)
         .single();
 
@@ -42,60 +47,16 @@ export default function TaskDetailScreen() {
         return;
       }
 
-      setTask(data as Task);
-    } catch (error) {
-      console.error(error);
-    } finally {
+      setTask(data as unknown as TaskDetail);
       setLoading(false);
     }
-  }
 
-  useFocusEffect(
-    useCallback(() => {
-      if (id) {
-        loadTask();
-      }
-    }, [id])
-  );
-
-  async function handleToggleComplete() {
-    if (!task) return;
-
-    const { error } = await supabase
-      .from('tasks')
-      .update({ is_completed: !task.is_completed })
-      .eq('id', task.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
-      return;
+    if (id) {
+      loadTask();
     }
+  }, [id]);
 
-    loadTask();
-  }
-
-  async function handleAddToCalendar() {
-    if (!task?.due_date) {
-      Alert.alert('No due date', 'Add a due date before sending this to your calendar.');
-      return;
-    }
-
-    try {
-      await addTaskToDeviceCalendar({
-        title: task.title,
-        dueDate: task.due_date,
-        notes: task.category ? `Category: ${task.category}` : 'Added from Keptly',
-      });
-
-      Alert.alert('Added', 'The task was added to your device calendar.');
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Could not add event.';
-      Alert.alert('Calendar error', message);
-    }
-  }
-
-  function handleDelete() {
+  async function handleDelete() {
     if (!task) return;
 
     Alert.alert('Delete task?', 'This cannot be undone.', [
@@ -111,10 +72,29 @@ export default function TaskDetailScreen() {
             return;
           }
 
-          router.replace('/(tabs)/tasks');
+          router.replace('/tasks');
         },
       },
     ]);
+  }
+
+  async function handleToggleComplete() {
+    if (!task) return;
+
+    const { error } = await supabase
+      .from('tasks')
+      .update({ is_completed: !task.is_completed })
+      .eq('id', task.id);
+
+    if (error) {
+      Alert.alert('Update failed', error.message);
+      return;
+    }
+
+    setTask({
+      ...task,
+      is_completed: !task.is_completed,
+    });
   }
 
   if (loading) {
@@ -133,38 +113,39 @@ export default function TaskDetailScreen() {
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <Pressable onPress={() => router.back()} style={styles.backButton}>
-        <Text style={styles.backText}>Back</Text>
-      </Pressable>
+  const assignee = task.profiles?.full_name || null;
 
-      <Text style={styles.title}>{task.title}</Text>
-      <Text style={styles.statusText}>
-        {task.is_completed ? 'Completed' : 'Open'}
-      </Text>
+  return (
+    <AppScreen>
+      <FormScreenHeader
+        title="Task details"
+        subtitle="Review and update this household task."
+      />
 
       <View style={styles.card}>
-        <Text style={styles.label}>Category</Text>
-        <Text style={styles.value}>{task.category || 'No category'}</Text>
+        <Text style={styles.title}>{task.title}</Text>
 
-        <Text style={styles.label}>Due date</Text>
-        <Text style={styles.value}>{task.due_date || 'No due date'}</Text>
+        <Text style={styles.meta}>
+          Status: {task.is_completed ? 'Done' : 'Open'}
+        </Text>
 
-        <Text style={styles.label}>Created</Text>
-        <Text style={styles.value}>
-          {new Date(task.created_at).toLocaleDateString()}
+        <Text style={styles.meta}>
+          Assigned to: {assignee || 'Unassigned'}
+        </Text>
+
+        <Text style={styles.meta}>
+          Category: {task.category || 'None'}
+        </Text>
+
+        <Text style={styles.meta}>
+          Due date: {task.due_date || 'No date selected'}
         </Text>
       </View>
 
       <Pressable style={styles.primaryButton} onPress={handleToggleComplete}>
         <Text style={styles.primaryButtonText}>
-          {task.is_completed ? 'Mark as Open' : 'Mark as Done'}
+          {task.is_completed ? 'Mark Open' : 'Mark Done'}
         </Text>
-      </Pressable>
-
-      <Pressable style={styles.secondaryButton} onPress={handleAddToCalendar}>
-        <Text style={styles.secondaryButtonText}>Add to Phone Calendar</Text>
       </Pressable>
 
       <Pressable
@@ -177,98 +158,73 @@ export default function TaskDetailScreen() {
       <Pressable style={styles.deleteButton} onPress={handleDelete}>
         <Text style={styles.deleteButtonText}>Delete Task</Text>
       </Pressable>
-    </View>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F6F2',
-    padding: 24,
-  },
   center: {
     flex: 1,
+    backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8F6F2',
   },
-  backButton: {
-    marginBottom: 20,
-    marginTop: 20,
-  },
-  backText: {
-    color: '#2A9D8F',
+  emptyText: {
+    color: COLORS.muted,
     fontSize: 16,
-    fontWeight: '600',
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: '700',
-    color: '#1F1F1F',
-    marginBottom: 8,
-  },
-  statusText: {
-    fontSize: 15,
-    color: '#5F6368',
-    marginBottom: 20,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 20,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
   },
-  label: {
-    fontSize: 14,
-    color: '#5F6368',
-    marginTop: 12,
-    marginBottom: 4,
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
   },
-  value: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F1F1F',
+  meta: {
+    fontSize: 15,
+    color: COLORS.muted,
+    marginBottom: 8,
   },
   primaryButton: {
-    backgroundColor: '#264653',
-    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
     paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: SPACING.sm,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: COLORS.primaryText,
     fontSize: 16,
     fontWeight: '600',
   },
   secondaryButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
     paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#264653',
+    marginBottom: SPACING.sm,
   },
   secondaryButtonText: {
-    color: '#264653',
+    color: COLORS.primary,
     fontSize: 16,
     fontWeight: '600',
   },
   deleteButton: {
-    backgroundColor: '#C95A5A',
-    borderRadius: 12,
+    backgroundColor: COLORS.dangerSoft,
+    borderRadius: RADIUS.md,
     paddingVertical: 14,
     alignItems: 'center',
   },
   deleteButtonText: {
-    color: '#FFFFFF',
+    color: COLORS.danger,
     fontSize: 16,
-    fontWeight: '600',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#5F6368',
+    fontWeight: '700',
   },
 });

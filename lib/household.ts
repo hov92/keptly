@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-export async function getCurrentHouseholdId() {
+export async function getCurrentHouseholdId(): Promise<string | null> {
   const {
     data: { session },
     error: sessionError,
@@ -15,9 +15,9 @@ export async function getCurrentHouseholdId() {
     .from('household_members')
     .select('household_id')
     .eq('user_id', user.id)
-    .maybeSingle();
+    .limit(1);
 
   if (error) throw error;
 
-  return data?.household_id ?? null;
+  return data?.[0]?.household_id ?? null;
 }

@@ -1,9 +1,9 @@
-import { Stack } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import type { Session } from '@supabase/supabase-js';
+import { Stack } from "expo-router";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+import type { Session } from "@supabase/supabase-js";
 
-import { supabase } from '../lib/supabase';
+import { supabase } from "../lib/supabase";
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
@@ -14,7 +14,7 @@ export default function RootLayout() {
 
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
-        console.error('Error getting session:', error.message);
+        console.error("Error getting session:", error.message);
       }
 
       if (mounted) {
@@ -41,9 +41,9 @@ export default function RootLayout() {
       <View
         style={{
           flex: 1,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#F8F6F2',
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#F8F6F2",
         }}
       >
         <ActivityIndicator size="large" />
@@ -69,6 +69,9 @@ export default function RootLayout() {
         <Stack.Screen name="records/providers/[id]" />
         <Stack.Screen name="records/providers/[id]/new-service" />
         <Stack.Screen name="records/service-records/edit/[id]" />
+        <Stack.Screen name="household/invites" />
+        <Stack.Screen name="household/invite" />
+        <Stack.Screen name="household/members" />
       </Stack.Protected>
     </Stack>
   );
