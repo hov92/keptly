@@ -1,17 +1,19 @@
 import { useMemo, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  View,
 } from 'react-native';
 import { router } from 'expo-router';
 import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
@@ -43,6 +45,11 @@ export default function NewTaskScreen() {
   const pickerValue = useMemo(() => {
     return dueDate ? fromYMD(dueDate) : new Date();
   }, [dueDate]);
+
+  function openDatePicker() {
+    Keyboard.dismiss();
+    setShowPicker(true);
+  }
 
   function onDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
     if (Platform.OS === 'android') {
@@ -108,70 +115,100 @@ export default function NewTaskScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <Pressable onPress={() => router.back()} style={styles.backButton}>
-        <Text style={styles.backText}>Back</Text>
-      </Pressable>
-
-      <Text style={styles.title}>Add task</Text>
-      <Text style={styles.subtitle}>Create a task for your household.</Text>
-
-      <TextInput
-        style={styles.input}
-        placeholder="Task title"
-        placeholderTextColor="#6B7280"
-        value={title}
-        onChangeText={setTitle}
-      />
-
-      <TextInput
-        style={styles.input}
-        placeholder="Category (optional)"
-        placeholderTextColor="#6B7280"
-        value={category}
-        onChangeText={setCategory}
-      />
-
-      <Text style={styles.label}>Due date</Text>
-
-      <Pressable style={styles.dateButton} onPress={() => setShowPicker(true)}>
-        <Text style={styles.dateButtonText}>{formatDateLabel(dueDate)}</Text>
-      </Pressable>
-
-      {dueDate ? (
-        <Pressable onPress={() => setDueDate(null)} style={styles.clearLink}>
-          <Text style={styles.clearLinkText}>Clear date</Text>
-        </Pressable>
-      ) : null}
-
-      {showPicker ? (
-        <DateTimePicker
-          value={pickerValue}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'inline' : 'default'}
-          onChange={onDateChange}
-        />
-      ) : null}
-
-      <Pressable
-        style={styles.button}
-        onPress={handleCreateTask}
-        disabled={loading}
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.buttonText}>
-          {loading ? 'Saving...' : 'Save Task'}
-        </Text>
-      </Pressable>
-    </View>
+        <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+
+        <Text style={styles.title}>Add task</Text>
+        <Text style={styles.subtitle}>Create a task for your household.</Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Task title"
+          placeholderTextColor="#6B7280"
+          value={title}
+          onChangeText={setTitle}
+          returnKeyType="done"
+        />
+
+        <TextInput
+          style={styles.input}
+          placeholder="Category (optional)"
+          placeholderTextColor="#6B7280"
+          value={category}
+          onChangeText={setCategory}
+          returnKeyType="done"
+        />
+
+        <Text style={styles.label}>Due date</Text>
+
+        <Pressable style={styles.dateButton} onPress={openDatePicker}>
+          <Text style={styles.dateButtonText}>{formatDateLabel(dueDate)}</Text>
+        </Pressable>
+
+        {dueDate ? (
+          <Pressable onPress={() => setDueDate(null)} style={styles.clearLink}>
+            <Text style={styles.clearLinkText}>Clear date</Text>
+          </Pressable>
+        ) : null}
+
+        {showPicker ? (
+          <Pressable onPress={Keyboard.dismiss}>
+            <Text />
+          </Pressable>
+        ) : null}
+
+        {showPicker ? (
+          <ScrollView
+            horizontal={false}
+            scrollEnabled={false}
+            contentContainerStyle={styles.pickerOuter}
+          >
+            <Text />
+            <SafeAreaView edges={[]}>
+              <Pressable style={styles.pickerWrap}>
+                <DateTimePicker
+                  value={pickerValue}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={onDateChange}
+                  themeVariant="light"
+                  accentColor="#264653"
+                  textColor="#1F1F1F"
+                />
+              </Pressable>
+            </SafeAreaView>
+          </ScrollView>
+        ) : null}
+
+        <Pressable
+          style={styles.button}
+          onPress={handleCreateTask}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? 'Saving...' : 'Save Task'}
+          </Text>
+        </Pressable>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#F8F6F2',
+  },
+  container: {
     padding: 24,
-    justifyContent: 'center',
+    paddingTop: 8,
+    paddingBottom: 40,
   },
   backButton: {
     marginBottom: 20,
@@ -228,6 +265,16 @@ const styles = StyleSheet.create({
     color: '#2A9D8F',
     fontSize: 14,
     fontWeight: '600',
+  },
+  pickerOuter: {
+    marginBottom: 12,
+  },
+  pickerWrap: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E6E0D8',
   },
   button: {
     backgroundColor: '#264653',

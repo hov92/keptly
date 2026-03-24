@@ -4,6 +4,7 @@ import {
   Alert,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -143,7 +144,7 @@ export default function ProviderDetailScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Pressable onPress={() => router.back()} style={styles.backButton}>
         <Text style={styles.backText}>Back</Text>
       </Pressable>
@@ -209,21 +210,30 @@ export default function ProviderDetailScreen() {
               <Text style={styles.historyNotes}>{record.notes}</Text>
             ) : null}
 
-            <Pressable
-              style={styles.smallDeleteButton}
-              onPress={() =>
-                Alert.alert('Delete record?', 'This cannot be undone.', [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: () => handleDeleteRecord(record.id),
-                  },
-                ])
-              }
-            >
-              <Text style={styles.smallDeleteButtonText}>Delete Record</Text>
-            </Pressable>
+            <View style={styles.recordButtonsRow}>
+              <Pressable
+                style={styles.smallEditButton}
+                onPress={() => router.push(`/records/service-records/edit/${record.id}`)}
+              >
+                <Text style={styles.smallEditButtonText}>Edit Record</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.smallDeleteButton}
+                onPress={() =>
+                  Alert.alert('Delete record?', 'This cannot be undone.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: () => handleDeleteRecord(record.id),
+                    },
+                  ])
+                }
+              >
+                <Text style={styles.smallDeleteButtonText}>Delete Record</Text>
+              </Pressable>
+            </View>
           </View>
         ))
       )}
@@ -231,7 +241,7 @@ export default function ProviderDetailScreen() {
       <Pressable style={styles.deleteButton} onPress={handleDelete}>
         <Text style={styles.deleteButtonText}>Delete Provider</Text>
       </Pressable>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -239,8 +249,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F6F2',
+  },
+  content: {
     padding: 24,
     paddingTop: 60,
+    paddingBottom: 40,
   },
   center: {
     flex: 1,
@@ -357,13 +370,30 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#5F6368',
   },
+  recordButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  smallEditButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F5F3',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  smallEditButtonText: {
+    color: '#2A9D8F',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   smallDeleteButton: {
     alignSelf: 'flex-start',
     backgroundColor: '#FEE4E2',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    marginTop: 4,
   },
   smallDeleteButtonText: {
     color: '#B42318',

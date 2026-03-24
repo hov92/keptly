@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Keyboard,
   Platform,
@@ -17,7 +18,6 @@ import DateTimePicker, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../../../lib/supabase';
-import { getCurrentHouseholdId } from '../../../../lib/household';
 
 function toYMD(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -36,19 +36,58 @@ function formatDateLabel(value: string | null) {
   });
 }
 
-export default function NewServiceRecordScreen() {
+type LoadedRecord = {
+  title: string;
+  service_date: string | null;
+  amount: number | null;
+  notes: string | null;
+  provider_id: string | null;
+};
+
+export default function EditServiceRecordScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [title, setTitle] = useState('');
   const [serviceDate, setServiceDate] = useState<string | null>(null);
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
   const pickerValue = useMemo(() => {
     return serviceDate ? fromYMD(serviceDate) : new Date();
   }, [serviceDate]);
+
+  useEffect(() => {
+    async function loadRecord() {
+      const { data, error } = await supabase
+        .from('service_records')
+        .select('title, service_date, amount, notes, provider_id')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        Alert.alert('Load failed', error.message);
+        router.back();
+        return;
+      }
+
+      const record = data as LoadedRecord;
+
+      setTitle(record.title ?? '');
+      setServiceDate(record.service_date ?? null);
+      setAmount(record.amount != null ? String(record.amount) : '');
+      setNotes(record.notes ?? '');
+      setProviderId(record.provider_id ?? null);
+      setLoading(false);
+    }
+
+    if (id) {
+      loadRecord();
+    }
+  }, [id]);
 
   function openDatePicker() {
     Keyboard.dismiss();
@@ -75,52 +114,50 @@ export default function NewServiceRecordScreen() {
       return;
     }
 
+    const parsedAmount =
+      amount.trim() === '' ? null : Number.parseFloat(amount.trim());
+
+    if (amount.trim() !== '' && Number.isNaN(parsedAmount as number)) {
+      Alert.alert('Invalid amount', 'Enter a valid dollar amount.');
+      return;
+    }
+
     try {
-      setLoading(true);
+      setSaving(true);
 
-      const householdId = await getCurrentHouseholdId();
-
-      if (!householdId) {
-        Alert.alert('No household', 'Create a household first.');
-        router.replace('/household/create');
-        return;
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const user = session?.user;
-
-      const parsedAmount =
-        amount.trim() === '' ? null : Number.parseFloat(amount.trim());
-
-      if (amount.trim() !== '' && Number.isNaN(parsedAmount as number)) {
-        Alert.alert('Invalid amount', 'Enter a valid dollar amount.');
-        return;
-      }
-
-      const { error } = await supabase.from('service_records').insert({
-        household_id: householdId,
-        provider_id: id,
-        title: title.trim(),
-        service_date: serviceDate,
-        amount: parsedAmount,
-        notes: notes.trim() || null,
-        created_by: user?.id ?? null,
-      });
+      const { error } = await supabase
+        .from('service_records')
+        .update({
+          title: title.trim(),
+          service_date: serviceDate,
+          amount: parsedAmount,
+          notes: notes.trim() || null,
+        })
+        .eq('id', id);
 
       if (error) {
         Alert.alert('Save failed', error.message);
         return;
       }
 
-      router.replace(`/records/providers/${id}`);
+      if (providerId) {
+        router.replace(`/records/providers/${providerId}`);
+      } else {
+        router.back();
+      }
     } catch (error) {
       Alert.alert('Error', 'Something went wrong saving the service record.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
   }
 
   return (
@@ -133,8 +170,8 @@ export default function NewServiceRecordScreen() {
           <Text style={styles.backText}>Back</Text>
         </Pressable>
 
-        <Text style={styles.title}>Add service record</Text>
-        <Text style={styles.subtitle}>Save work completed by this provider.</Text>
+        <Text style={styles.title}>Edit service record</Text>
+        <Text style={styles.subtitle}>Update the details for this service.</Text>
 
         <TextInput
           style={styles.input}
@@ -190,9 +227,9 @@ export default function NewServiceRecordScreen() {
           multiline
         />
 
-        <Pressable style={styles.button} onPress={handleSave} disabled={loading}>
+        <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
           <Text style={styles.buttonText}>
-            {loading ? 'Saving...' : 'Save Record'}
+            {saving ? 'Saving...' : 'Save Changes'}
           </Text>
         </Pressable>
       </ScrollView>
@@ -209,6 +246,12 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingTop: 8,
     paddingBottom: 40,
+  },
+  center: {
+    flex: 1,
+    backgroundColor: '#F8F6F2',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   backButton: {
     marginBottom: 20,
