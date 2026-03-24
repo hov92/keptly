@@ -1,12 +1,8 @@
-import { useState } from 'react';
-import {
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-} from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { getNoHouseholdRoute } from '../../../../lib/no-household-route';
 import { supabase } from '../../../../lib/supabase';
 import { getCurrentHouseholdId } from '../../../../lib/household';
 import { AppScreen } from '../../../../components/app-screen';
@@ -14,6 +10,7 @@ import { FormInput } from '../../../../components/form-input';
 import { DateField } from '../../../../components/date-field';
 import { FormScreenHeader } from '../../../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../../../constants/theme';
+import { getActiveHouseholdPermissions } from '../../../../lib/permissions';
 
 export default function NewServiceRecordScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -23,10 +20,31 @@ export default function NewServiceRecordScreen() {
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
+  const [canManageServiceRecords, setCanManageServiceRecords] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    getActiveHouseholdPermissions()
+      .then((permissions) => {
+        setCanManageServiceRecords(permissions.canManageServiceRecords);
+        if (!permissions.canManageServiceRecords) {
+          Alert.alert(
+            'Restricted',
+            'Your role does not allow adding service records.'
+          );
+          router.back();
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   async function handleSave() {
     if (!title.trim()) {
       Alert.alert('Missing info', 'Enter a service title.');
+      return;
+    }
+
+    if (!canManageServiceRecords) {
+      Alert.alert('Restricted', 'You cannot add service records.');
       return;
     }
 
@@ -35,9 +53,9 @@ export default function NewServiceRecordScreen() {
 
       const householdId = await getCurrentHouseholdId();
 
-      if (!householdId) {
-        Alert.alert('No household', 'Create a household first.');
-        router.replace('/household/create');
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
         return;
       }
 
@@ -78,6 +96,10 @@ export default function NewServiceRecordScreen() {
     }
   }
 
+  if (canManageServiceRecords === null) {
+    return null;
+  }
+
   return (
     <AppScreen>
       <FormScreenHeader
@@ -92,7 +114,11 @@ export default function NewServiceRecordScreen() {
         returnKeyType="done"
       />
 
-      <DateField label="Service date" value={serviceDate} onChange={setServiceDate} />
+      <DateField
+        label="Service date"
+        value={serviceDate}
+        onChange={setServiceDate}
+      />
 
       <FormInput
         placeholder="Amount paid"

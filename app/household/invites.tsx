@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -74,12 +73,12 @@ export default function HouseholdInvitesScreen() {
 
       await acceptHouseholdInvite({
         inviteId: invite.id,
-        householdId: invite.household_id,
         userId,
       });
 
       await loadInvites();
       Alert.alert('Invite accepted', 'You joined the household.');
+      router.replace('/');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not accept invite.';
@@ -124,7 +123,10 @@ export default function HouseholdInvitesScreen() {
         subtitle="Manage outgoing invites and respond to incoming ones."
       />
 
-      <Pressable style={styles.topButton} onPress={() => router.push('/household/invite')}>
+      <Pressable
+        style={styles.topButton}
+        onPress={() => router.push('/household/invite')}
+      >
         <Text style={styles.topButtonText}>Invite Member</Text>
       </Pressable>
 
@@ -141,6 +143,7 @@ export default function HouseholdInvitesScreen() {
               {invite.households?.name ?? 'Household invite'}
             </Text>
             <Text style={styles.cardMeta}>{invite.invited_email}</Text>
+            <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>
 
             <View style={styles.row}>
               <Pressable
@@ -171,6 +174,7 @@ export default function HouseholdInvitesScreen() {
         outgoing.map((invite) => (
           <View key={invite.id} style={styles.card}>
             <Text style={styles.cardTitle}>{invite.invited_email}</Text>
+            <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>
             <Text style={styles.cardMeta}>Status: {invite.status}</Text>
 
             {invite.status === 'pending' ? (
@@ -239,12 +243,13 @@ const styles = StyleSheet.create({
   cardMeta: {
     fontSize: 14,
     color: COLORS.muted,
-    marginBottom: SPACING.sm,
+    marginBottom: 4,
   },
   row: {
     flexDirection: 'row',
     gap: SPACING.sm,
     flexWrap: 'wrap',
+    marginTop: 8,
   },
   actionButton: {
     borderRadius: RADIUS.md,

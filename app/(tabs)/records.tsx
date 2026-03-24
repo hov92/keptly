@@ -1,9 +1,52 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 
 import { Screen } from '../../components/screen';
+import { getCurrentHouseholdId } from '../../lib/household';
+import { getNoHouseholdRoute } from '../../lib/no-household-route';
 
 export default function RecordsScreen() {
+  const [loading, setLoading] = useState(true);
+
+  async function checkHousehold() {
+    try {
+      setLoading(true);
+
+      const householdId = await getCurrentHouseholdId();
+
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
+        return;
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      checkHousehold();
+    }, [])
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
   return (
     <Screen>
       <Text style={styles.title}>Records</Text>
@@ -34,6 +77,12 @@ export default function RecordsScreen() {
 }
 
 const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8F6F2',
+  },
   title: {
     fontSize: 28,
     fontWeight: '700',

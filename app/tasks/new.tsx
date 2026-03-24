@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router } from 'expo-router';
 
+import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { CategoryPicker } from '../../components/category-picker';
@@ -69,9 +70,9 @@ export default function NewTaskScreen() {
 
       const householdId = await getCurrentHouseholdId();
 
-      if (!householdId) {
-        Alert.alert('No household', 'Create a household first.');
-        router.replace('/household/create');
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
         return;
       }
 

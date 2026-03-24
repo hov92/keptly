@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
+import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { AppScreen } from '../../components/app-screen';
@@ -22,9 +23,7 @@ type Task = {
   due_date: string | null;
   is_completed: boolean;
   assigned_to: string | null;
-  profiles?: {
-    full_name: string | null;
-  } | null;
+  assigned_name?: string | null;
 };
 
 export default function TasksScreen() {
@@ -37,16 +36,15 @@ export default function TasksScreen() {
 
       const householdId = await getCurrentHouseholdId();
 
-      if (!householdId) {
-        router.replace('/household/create');
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
         return;
       }
 
       const { data, error } = await supabase
         .from('tasks')
-        .select(
-          'id, title, category, due_date, is_completed, assigned_to, profiles!tasks_assigned_to_fkey(full_name)'
-        )
+        .select('id, title, category, due_date, is_completed, assigned_to')
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
 
@@ -55,7 +53,41 @@ export default function TasksScreen() {
         return;
       }
 
-      setTasks((data ?? []) as unknown as Task[]);
+      const taskRows = (data ?? []) as Task[];
+
+      const assignedIds = Array.from(
+        new Set(taskRows.map((task) => task.assigned_to).filter(Boolean))
+      ) as string[];
+
+      let nameMap = new Map<string, string | null>();
+
+      if (assignedIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', assignedIds);
+
+        if (profilesError) {
+          Alert.alert('Load failed', profilesError.message);
+          return;
+        }
+
+        nameMap = new Map(
+          (profilesData ?? []).map((profile) => [
+            profile.id as string,
+            profile.full_name as string | null,
+          ])
+        );
+      }
+
+      setTasks(
+        taskRows.map((task) => ({
+          ...task,
+          assigned_name: task.assigned_to
+            ? (nameMap.get(task.assigned_to) ?? null)
+            : null,
+        }))
+      );
     } catch (error) {
       console.error(error);
     } finally {
@@ -84,8 +116,6 @@ export default function TasksScreen() {
   }
 
   function renderItem({ item }: { item: Task }) {
-    const assignee = item.profiles?.full_name || null;
-
     return (
       <Pressable
         style={styles.card}
@@ -127,7 +157,9 @@ export default function TasksScreen() {
           <Text style={styles.meta}>Due: {item.due_date}</Text>
         ) : null}
 
-        <Text style={styles.meta}>Assigned to: {assignee || 'Unassigned'}</Text>
+        <Text style={styles.meta}>
+          Assigned to: {item.assigned_name || 'Unassigned'}
+        </Text>
       </Pressable>
     );
   }
@@ -148,7 +180,10 @@ export default function TasksScreen() {
           <Text style={styles.subtitle}>Manage household tasks.</Text>
         </View>
 
-        <Pressable style={styles.addButton} onPress={() => router.push('/tasks/new')}>
+        <Pressable
+          style={styles.addButton}
+          onPress={() => router.push('/tasks/new')}
+        >
           <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
       </View>

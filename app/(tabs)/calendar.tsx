@@ -12,6 +12,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Screen } from '../../components/screen';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { getNoHouseholdRoute } from '../../lib/no-household-route';
 
 type Task = {
   id: string;
@@ -59,8 +60,9 @@ export default function CalendarScreen() {
 
       const householdId = await getCurrentHouseholdId();
 
-      if (!householdId) {
-        setTasks([]);
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
         return;
       }
 
@@ -146,7 +148,7 @@ export default function CalendarScreen() {
     return tasks.filter(
       (task) => !!task.due_date && filterDates.includes(task.due_date)
     );
-  }, [tasks, filterDates, activeFilter, today]);
+  }, [tasks, filterDates, activeFilter]);
 
   const tasksForSelectedDate = useMemo(() => {
     return tasks.filter((task) => task.due_date === selectedDate);

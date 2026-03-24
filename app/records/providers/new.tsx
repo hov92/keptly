@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 
+import { getNoHouseholdRoute } from '../../../lib/no-household-route';
 import { supabase } from '../../../lib/supabase';
 import { getCurrentHouseholdId } from '../../../lib/household';
 import { CategoryPicker } from '../../../components/category-picker';
@@ -21,6 +22,7 @@ import { AppScreen } from '../../../components/app-screen';
 import { FormInput } from '../../../components/form-input';
 import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../../constants/theme';
+import { getActiveHouseholdPermissions } from '../../../lib/permissions';
 
 export default function NewProviderScreen() {
   const [name, setName] = useState('');
@@ -34,11 +36,25 @@ export default function NewProviderScreen() {
   const [notes, setNotes] = useState('');
   const [isPreferred, setIsPreferred] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [canManageProviders, setCanManageProviders] = useState<boolean | null>(null);
 
   const isOther = category === 'Other';
 
   useEffect(() => {
     getMergedProviderCategories(PROVIDER_CATEGORIES).then(setCategoryOptions);
+
+    getActiveHouseholdPermissions()
+      .then((permissions) => {
+        setCanManageProviders(permissions.canManageProviders);
+        if (!permissions.canManageProviders) {
+          Alert.alert(
+            'Restricted',
+            'Your role does not allow creating providers.'
+          );
+          router.back();
+        }
+      })
+      .catch(console.error);
   }, []);
 
   async function handleSave() {
@@ -52,14 +68,19 @@ export default function NewProviderScreen() {
       return;
     }
 
+    if (!canManageProviders) {
+      Alert.alert('Restricted', 'You cannot create providers.');
+      return;
+    }
+
     try {
       setLoading(true);
 
       const householdId = await getCurrentHouseholdId();
 
-      if (!householdId) {
-        Alert.alert('No household', 'Create a household first.');
-        router.replace('/household/create');
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
         return;
       }
 
@@ -97,6 +118,10 @@ export default function NewProviderScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (canManageProviders === null) {
+    return null;
   }
 
   return (

@@ -11,13 +11,31 @@ export async function getCurrentHouseholdId(): Promise<string | null> {
   const user = session?.user;
   if (!user) return null;
 
-  const { data, error } = await supabase
+  const { data: profileData, error: profileError } = await supabase
+    .from('profiles')
+    .select('current_household_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profileError) throw profileError;
+
+  const currentHouseholdId = profileData?.current_household_id;
+
+  if (
+    currentHouseholdId &&
+    currentHouseholdId !== 'null' &&
+    currentHouseholdId !== 'undefined'
+  ) {
+    return currentHouseholdId;
+  }
+
+  const { data: memberData, error: memberError } = await supabase
     .from('household_members')
     .select('household_id')
     .eq('user_id', user.id)
     .limit(1);
 
-  if (error) throw error;
+  if (memberError) throw memberError;
 
-  return data?.[0]?.household_id ?? null;
+  return memberData?.[0]?.household_id ?? null;
 }

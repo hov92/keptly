@@ -12,6 +12,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { Screen } from '../../components/screen';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { getNoHouseholdRoute } from '../../lib/no-household-route';
 
 type Task = {
   id: string;
@@ -39,8 +40,9 @@ export default function HomeScreen() {
 
       const householdId = await getCurrentHouseholdId();
 
-      if (!householdId) {
-        router.replace('/household/create');
+      if (!householdId || householdId === 'null' || householdId === 'undefined') {
+        const route = await getNoHouseholdRoute();
+        router.replace(route);
         return;
       }
 
@@ -115,18 +117,30 @@ export default function HomeScreen() {
     <Screen>
       <ScrollView showsVerticalScrollIndicator={false}>
         <Text style={styles.eyebrow}>Dashboard</Text>
-        <Text style={styles.title}>{household?.name ?? 'Keptly'}</Text>
-        <Text style={styles.subtitle}>
-          {household?.home_type
-            ? `${household.home_type} household overview`
-            : 'Keep your home on track'}
-        </Text>
+
+        <View style={styles.headerRow}>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.title}>Home</Text>
+            <Text style={styles.subtitle}>Your household dashboard</Text>
+          </View>
+
+          {household?.name ? (
+            <View style={styles.householdPill}>
+              <Text style={styles.householdPillLabel}>Active household</Text>
+              <Text style={styles.householdPillText}>{household.name}</Text>
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.heroCard}>
           <Text style={styles.heroTitle}>Today at a glance</Text>
           <Text style={styles.heroText}>
             Stay on top of what needs attention around the house.
           </Text>
+
+          {!!household?.home_type && (
+            <Text style={styles.heroSubtext}>{household.home_type} home</Text>
+          )}
 
           <View style={styles.heroButtons}>
             <Pressable
@@ -305,6 +319,12 @@ const styles = StyleSheet.create({
     color: '#2A9D8F',
     marginBottom: 8,
   },
+  headerRow: {
+    marginBottom: 20,
+  },
+  headerTextWrap: {
+    marginBottom: 12,
+  },
   title: {
     fontSize: 30,
     fontWeight: '700',
@@ -314,7 +334,25 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: '#5F6368',
-    marginBottom: 20,
+  },
+  householdPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E8F5F3',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  householdPillLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2A9D8F',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  householdPillText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#264653',
   },
   heroCard: {
     backgroundColor: '#264653',
@@ -332,6 +370,11 @@ const styles = StyleSheet.create({
     color: '#E8EEF0',
     fontSize: 15,
     lineHeight: 22,
+    marginBottom: 10,
+  },
+  heroSubtext: {
+    color: '#BFD3D8',
+    fontSize: 13,
     marginBottom: 16,
   },
   heroButtons: {
