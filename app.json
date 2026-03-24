@@ -39,7 +39,13 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Keptly uses your calendar to add household tasks as events."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

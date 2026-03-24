@@ -10,6 +10,7 @@ import {
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import { supabase } from '../../lib/supabase';
+import { addTaskToDeviceCalendar } from '../../lib/deviceCalendar';
 
 type Task = {
   id: string;
@@ -71,6 +72,27 @@ export default function TaskDetailScreen() {
     }
 
     loadTask();
+  }
+
+  async function handleAddToCalendar() {
+    if (!task?.due_date) {
+      Alert.alert('No due date', 'Add a due date before sending this to your calendar.');
+      return;
+    }
+
+    try {
+      await addTaskToDeviceCalendar({
+        title: task.title,
+        dueDate: task.due_date,
+        notes: task.category ? `Category: ${task.category}` : 'Added from Keptly',
+      });
+
+      Alert.alert('Added', 'The task was added to your device calendar.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not add event.';
+      Alert.alert('Calendar error', message);
+    }
   }
 
   function handleDelete() {
@@ -139,6 +161,10 @@ export default function TaskDetailScreen() {
         <Text style={styles.primaryButtonText}>
           {task.is_completed ? 'Mark as Open' : 'Mark as Done'}
         </Text>
+      </Pressable>
+
+      <Pressable style={styles.secondaryButton} onPress={handleAddToCalendar}>
+        <Text style={styles.secondaryButtonText}>Add to Phone Calendar</Text>
       </Pressable>
 
       <Pressable

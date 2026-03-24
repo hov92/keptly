@@ -19,6 +19,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="tasks"
         options={{
@@ -28,6 +29,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="calendar"
         options={{
@@ -37,6 +39,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="records"
         options={{
@@ -46,6 +49,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
