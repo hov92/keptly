@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -9,16 +10,41 @@ import {
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 
 import { supabase } from '../../../lib/supabase';
+
+function toYMD(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function fromYMD(value: string) {
+  return new Date(`${value}T12:00:00`);
+}
+
+function formatDateLabel(value: string | null) {
+  if (!value) return 'No date selected';
+  return fromYMD(value).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
 
 export default function EditTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [dueDate, setDueDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+
+  const pickerValue = useMemo(() => {
+    return dueDate ? fromYMD(dueDate) : new Date();
+  }, [dueDate]);
 
   useEffect(() => {
     async function loadTask() {
@@ -36,7 +62,7 @@ export default function EditTaskScreen() {
 
       setTitle(data.title ?? '');
       setCategory(data.category ?? '');
-      setDueDate(data.due_date ?? '');
+      setDueDate(data.due_date ?? null);
       setLoading(false);
     }
 
@@ -44,6 +70,20 @@ export default function EditTaskScreen() {
       loadTask();
     }
   }, [id]);
+
+  function onDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (Platform.OS === 'android') {
+      setShowPicker(false);
+    }
+
+    if (event.type === 'dismissed') {
+      return;
+    }
+
+    if (selectedDate) {
+      setDueDate(toYMD(selectedDate));
+    }
+  }
 
   async function handleSave() {
     if (!title.trim()) {
@@ -59,7 +99,7 @@ export default function EditTaskScreen() {
         .update({
           title: title.trim(),
           category: category.trim() || null,
-          due_date: dueDate.trim() || null,
+          due_date: dueDate,
         })
         .eq('id', id);
 
@@ -107,13 +147,26 @@ export default function EditTaskScreen() {
         onChangeText={setCategory}
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Due date YYYY-MM-DD (optional)"
-        value={dueDate}
-        onChangeText={setDueDate}
-        autoCapitalize="none"
-      />
+      <Text style={styles.label}>Due date</Text>
+
+      <Pressable style={styles.dateButton} onPress={() => setShowPicker(true)}>
+        <Text style={styles.dateButtonText}>{formatDateLabel(dueDate)}</Text>
+      </Pressable>
+
+      {dueDate ? (
+        <Pressable onPress={() => setDueDate(null)} style={styles.clearLink}>
+          <Text style={styles.clearLinkText}>Clear date</Text>
+        </Pressable>
+      ) : null}
+
+      {showPicker ? (
+        <DateTimePicker
+          value={pickerValue}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          onChange={onDateChange}
+        />
+      ) : null}
 
       <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
         <Text style={styles.buttonText}>
@@ -164,6 +217,33 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E6E0D8',
+  },
+  label: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F1F1F',
+    marginBottom: 10,
+  },
+  dateButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E6E0D8',
+  },
+  dateButtonText: {
+    color: '#1F1F1F',
+    fontSize: 16,
+  },
+  clearLink: {
+    marginBottom: 12,
+  },
+  clearLinkText: {
+    color: '#2A9D8F',
+    fontSize: 14,
+    fontWeight: '600',
   },
   button: {
     backgroundColor: '#264653',

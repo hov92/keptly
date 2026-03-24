@@ -99,6 +99,10 @@ export default function HomeScreen() {
 
   const recentTasks = tasks.slice(0, 4);
 
+  function isOverdue(task: Task) {
+    return !task.is_completed && !!task.due_date && task.due_date < today;
+  }
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -142,25 +146,66 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
+          <Pressable
+            style={styles.statCard}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { filter: 'today' },
+              })
+            }
+          >
             <Text style={styles.statNumber}>{dueTodayCount}</Text>
             <Text style={styles.statLabel}>Due Today</Text>
-          </View>
+          </Pressable>
 
-          <View style={styles.statCard}>
+          <Pressable
+            style={styles.statCard}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { filter: 'next7' },
+              })
+            }
+          >
             <Text style={styles.statNumber}>{upcomingCount}</Text>
             <Text style={styles.statLabel}>Upcoming</Text>
-          </View>
+          </Pressable>
 
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{overdueCount}</Text>
-            <Text style={styles.statLabel}>Overdue</Text>
-          </View>
+          <Pressable
+            style={[styles.statCard, overdueCount > 0 && styles.statCardOverdue]}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { filter: 'overdue' },
+              })
+            }
+          >
+            <Text
+              style={[
+                styles.statNumber,
+                overdueCount > 0 && styles.statNumberOverdue,
+              ]}
+            >
+              {overdueCount}
+            </Text>
+            <Text
+              style={[
+                styles.statLabel,
+                overdueCount > 0 && styles.statLabelOverdue,
+              ]}
+            >
+              Overdue
+            </Text>
+          </Pressable>
 
-          <View style={styles.statCard}>
+          <Pressable
+            style={styles.statCard}
+            onPress={() => router.push('/(tabs)/tasks')}
+          >
             <Text style={styles.statNumber}>{completedCount}</Text>
             <Text style={styles.statLabel}>Completed</Text>
-          </View>
+          </Pressable>
         </View>
 
         <View style={styles.sectionHeader}>
@@ -185,48 +230,62 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         ) : (
-          recentTasks.map((task) => (
-            <View key={task.id} style={styles.taskCard}>
-              <View style={styles.taskTopRow}>
-                <Text
-                  style={[
-                    styles.taskTitle,
-                    task.is_completed && styles.taskTitleCompleted,
-                  ]}
-                >
-                  {task.title}
-                </Text>
+          recentTasks.map((task) => {
+            const overdue = isOverdue(task);
 
-                <View
-                  style={[
-                    styles.statusBadge,
-                    task.is_completed
-                      ? styles.statusBadgeDone
-                      : styles.statusBadgeOpen,
-                  ]}
-                >
+            return (
+              <View
+                key={task.id}
+                style={[styles.taskCard, overdue && styles.taskCardOverdue]}
+              >
+                <View style={styles.taskTopRow}>
                   <Text
                     style={[
-                      styles.statusBadgeText,
-                      task.is_completed
-                        ? styles.statusBadgeTextDone
-                        : styles.statusBadgeTextOpen,
+                      styles.taskTitle,
+                      task.is_completed && styles.taskTitleCompleted,
+                      overdue && styles.taskTitleOverdue,
                     ]}
                   >
-                    {task.is_completed ? 'Done' : 'Open'}
+                    {task.title}
                   </Text>
+
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      task.is_completed
+                        ? styles.statusBadgeDone
+                        : overdue
+                        ? styles.statusBadgeOverdue
+                        : styles.statusBadgeOpen,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusBadgeText,
+                        task.is_completed
+                          ? styles.statusBadgeTextDone
+                          : overdue
+                          ? styles.statusBadgeTextOverdue
+                          : styles.statusBadgeTextOpen,
+                      ]}
+                    >
+                      {task.is_completed ? 'Done' : overdue ? 'Overdue' : 'Open'}
+                    </Text>
+                  </View>
                 </View>
+
+                {!!task.category && (
+                  <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
+                    Category: {task.category}
+                  </Text>
+                )}
+
+                <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
+                  {task.due_date ? `Due: ${task.due_date}` : 'No due date'}
+                </Text>
               </View>
-
-              {!!task.category && (
-                <Text style={styles.taskMeta}>Category: {task.category}</Text>
-              )}
-
-              <Text style={styles.taskMeta}>
-                {task.due_date ? `Due: ${task.due_date}` : 'No due date'}
-              </Text>
-            </View>
-          ))
+            );
+          })
         )}
       </ScrollView>
     </Screen>
@@ -317,15 +376,27 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
+  statCardOverdue: {
+    backgroundColor: '#FFF1F1',
+    borderWidth: 1,
+    borderColor: '#E59A9A',
+  },
   statNumber: {
     fontSize: 28,
     fontWeight: '700',
     color: '#1F1F1F',
     marginBottom: 6,
   },
+  statNumberOverdue: {
+    color: '#B42318',
+  },
   statLabel: {
     fontSize: 14,
     color: '#5F6368',
+  },
+  statLabelOverdue: {
+    color: '#B42318',
+    fontWeight: '600',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -367,6 +438,11 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  taskCardOverdue: {
+    backgroundColor: '#FFF7F7',
+    borderWidth: 1,
+    borderColor: '#F2B8B5',
+  },
   taskTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -383,10 +459,16 @@ const styles = StyleSheet.create({
     color: '#5F6368',
     textDecorationLine: 'line-through',
   },
+  taskTitleOverdue: {
+    color: '#B42318',
+  },
   taskMeta: {
     fontSize: 14,
     color: '#5F6368',
     marginBottom: 4,
+  },
+  taskMetaOverdue: {
+    color: '#B42318',
   },
   statusBadge: {
     borderRadius: 999,
@@ -397,6 +479,9 @@ const styles = StyleSheet.create({
   statusBadgeOpen: {
     backgroundColor: '#E8F5F3',
   },
+  statusBadgeOverdue: {
+    backgroundColor: '#FEE4E2',
+  },
   statusBadgeDone: {
     backgroundColor: '#264653',
   },
@@ -406,6 +491,9 @@ const styles = StyleSheet.create({
   },
   statusBadgeTextOpen: {
     color: '#2A9D8F',
+  },
+  statusBadgeTextOverdue: {
+    color: '#B42318',
   },
   statusBadgeTextDone: {
     color: '#FFFFFF',

@@ -45,7 +45,8 @@
         {
           "calendarPermission": "Keptly uses your calendar to add household tasks as events."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
