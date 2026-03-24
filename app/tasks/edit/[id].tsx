@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from "@react-native-community/datetimepicker";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -10,14 +14,16 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import DateTimePicker, {
-  DateTimePickerEvent,
-} from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { supabase } from '../../../lib/supabase';
+import { CategoryPicker } from "../../../components/category-picker";
+import { TASK_CATEGORIES } from "../../../constants/categories";
+import {
+  getMergedTaskCategories,
+  saveCustomTaskCategory,
+} from "../../../lib/categories";
+import { supabase } from "../../../lib/supabase";
 
 function toYMD(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -28,18 +34,22 @@ function fromYMD(value: string) {
 }
 
 function formatDateLabel(value: string | null) {
-  if (!value) return 'No date selected';
+  if (!value) return "No date selected";
   return fromYMD(value).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
 export default function EditTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("");
+  const [customCategory, setCustomCategory] = useState("");
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([
+    ...TASK_CATEGORIES,
+  ]);
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -49,22 +59,36 @@ export default function EditTaskScreen() {
     return dueDate ? fromYMD(dueDate) : new Date();
   }, [dueDate]);
 
+  const isOther = category === "Other";
+
+  useEffect(() => {
+    getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
+  }, []);
+
   useEffect(() => {
     async function loadTask() {
       const { data, error } = await supabase
-        .from('tasks')
-        .select('title, category, due_date')
-        .eq('id', id)
+        .from("tasks")
+        .select("title, category, due_date")
+        .eq("id", id)
         .single();
 
       if (error) {
-        Alert.alert('Load failed', error.message);
+        Alert.alert("Load failed", error.message);
         router.back();
         return;
       }
 
-      setTitle(data.title ?? '');
-      setCategory(data.category ?? '');
+      const loadedCategory = data.category ?? "";
+      const isPreset =
+        loadedCategory === "" ||
+        TASK_CATEGORIES.includes(
+          loadedCategory as (typeof TASK_CATEGORIES)[number],
+        );
+
+      setTitle(data.title ?? "");
+      setCategory(isPreset ? loadedCategory : "Other");
+      setCustomCategory(isPreset ? "" : loadedCategory);
       setDueDate(data.due_date ?? null);
       setLoading(false);
     }
@@ -80,11 +104,11 @@ export default function EditTaskScreen() {
   }
 
   function onDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
-    if (Platform.OS === 'android') {
+    if (Platform.OS === "android") {
       setShowPicker(false);
     }
 
-    if (event.type === 'dismissed') {
+    if (event.type === "dismissed") {
       return;
     }
 
@@ -95,30 +119,45 @@ export default function EditTaskScreen() {
 
   async function handleSave() {
     if (!title.trim()) {
-      Alert.alert('Missing info', 'Enter a task title.');
+      Alert.alert("Missing info", "Enter a task title.");
+      return;
+    }
+
+    if (isOther && !customCategory.trim()) {
+      Alert.alert("Missing info", "Enter a custom category.");
       return;
     }
 
     try {
       setSaving(true);
 
+      const finalCategory = isOther ? customCategory.trim() : category || null;
+
       const { error } = await supabase
-        .from('tasks')
+        .from("tasks")
         .update({
           title: title.trim(),
-          category: category.trim() || null,
+          category: finalCategory,
           due_date: dueDate,
         })
-        .eq('id', id);
+        .eq("id", id);
 
       if (error) {
-        Alert.alert('Save failed', error.message);
+        Alert.alert("Save failed", error.message);
         return;
       }
 
+      if (isOther && finalCategory) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        await saveCustomTaskCategory(finalCategory, session?.user?.id);
+      }
+
       router.replace(`/tasks/${id}`);
-    } catch (error) {
-      Alert.alert('Error', 'Something went wrong saving the task.');
+    } catch {
+      Alert.alert("Error", "Something went wrong saving the task.");
     } finally {
       setSaving(false);
     }
@@ -133,7 +172,7 @@ export default function EditTaskScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
       <ScrollView
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
@@ -154,14 +193,27 @@ export default function EditTaskScreen() {
           returnKeyType="done"
         />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Category (optional)"
-          placeholderTextColor="#6B7280"
+        <CategoryPicker
+          label="Category"
           value={category}
-          onChangeText={setCategory}
-          returnKeyType="done"
+          onChange={(value) => {
+            setCategory(value);
+            if (value !== "Other") setCustomCategory("");
+          }}
+          options={categoryOptions}
+          placeholder="Select a category"
         />
+
+        {isOther ? (
+          <TextInput
+            style={styles.input}
+            placeholder="Enter custom category"
+            placeholderTextColor="#6B7280"
+            value={customCategory}
+            onChangeText={setCustomCategory}
+            returnKeyType="done"
+          />
+        ) : null}
 
         <Text style={styles.label}>Due date</Text>
 
@@ -180,7 +232,7 @@ export default function EditTaskScreen() {
             <DateTimePicker
               value={pickerValue}
               mode="date"
-              display={Platform.OS === 'ios' ? 'inline' : 'default'}
+              display={Platform.OS === "ios" ? "inline" : "default"}
               onChange={onDateChange}
               themeVariant="light"
               accentColor="#264653"
@@ -191,7 +243,7 @@ export default function EditTaskScreen() {
 
         <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
           <Text style={styles.buttonText}>
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? "Saving..." : "Save Changes"}
           </Text>
         </Pressable>
       </ScrollView>
@@ -202,7 +254,7 @@ export default function EditTaskScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F8F6F2',
+    backgroundColor: "#F8F6F2",
   },
   container: {
     padding: 24,
@@ -211,84 +263,84 @@ const styles = StyleSheet.create({
   },
   center: {
     flex: 1,
-    backgroundColor: '#F8F6F2',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#F8F6F2",
+    alignItems: "center",
+    justifyContent: "center",
   },
   backButton: {
     marginBottom: 20,
   },
   backText: {
-    color: '#2A9D8F',
+    color: "#2A9D8F",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   title: {
     fontSize: 30,
-    fontWeight: '700',
-    color: '#1F1F1F',
+    fontWeight: "700",
+    color: "#1F1F1F",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#5F6368',
+    color: "#5F6368",
     marginBottom: 24,
   },
   input: {
-    backgroundColor: '#FFFFFF',
-    color: '#1F1F1F',
+    backgroundColor: "#FFFFFF",
+    color: "#1F1F1F",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E6E0D8',
+    borderColor: "#E6E0D8",
   },
   label: {
     fontSize: 15,
-    fontWeight: '600',
-    color: '#1F1F1F',
+    fontWeight: "600",
+    color: "#1F1F1F",
     marginBottom: 10,
   },
   dateButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#E6E0D8',
+    borderColor: "#E6E0D8",
   },
   dateButtonText: {
-    color: '#1F1F1F',
+    color: "#1F1F1F",
     fontSize: 16,
   },
   clearLink: {
     marginBottom: 12,
   },
   clearLinkText: {
-    color: '#2A9D8F',
+    color: "#2A9D8F",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   pickerWrap: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 8,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E6E0D8',
+    borderColor: "#E6E0D8",
   },
   button: {
-    backgroundColor: '#264653',
+    backgroundColor: "#264653",
     borderRadius: 12,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 8,
   },
   buttonText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });
