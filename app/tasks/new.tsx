@@ -119,6 +119,7 @@ export default function NewTaskScreen() {
       <TextInput
         style={styles.input}
         placeholder="Task title"
+        placeholderTextColor="#6B7280"
         value={title}
         onChangeText={setTitle}
       />
@@ -126,6 +127,7 @@ export default function NewTaskScreen() {
       <TextInput
         style={styles.input}
         placeholder="Category (optional)"
+        placeholderTextColor="#6B7280"
         value={category}
         onChangeText={setCategory}
       />
@@ -192,6 +194,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: '#FFFFFF',
+    color: '#1F1F1F',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,

@@ -64,6 +64,11 @@ export default function RootLayout() {
         <Stack.Screen name="tasks/new" />
         <Stack.Screen name="tasks/[id]" />
         <Stack.Screen name="tasks/edit/[id]" />
+        <Stack.Screen name="records/providers/index" />
+        <Stack.Screen name="records/providers/new" />
+        <Stack.Screen name="records/providers/[id]" />
+        <Stack.Screen name="records/providers/[id]/new-service" />
+        <Stack.Screen name="records/service-records/edit/[id]" />
       </Stack.Protected>
     </Stack>
   );

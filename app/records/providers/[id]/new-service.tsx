@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -14,7 +13,8 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 
-import { supabase } from '../../../lib/supabase';
+import { supabase } from '../../../../lib/supabase';
+import { getCurrentHouseholdId } from '../../../../lib/household';
 
 function toYMD(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -33,43 +33,19 @@ function formatDateLabel(value: string | null) {
   });
 }
 
-export default function EditTaskScreen() {
+export default function NewServiceRecordScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
-  const [dueDate, setDueDate] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [serviceDate, setServiceDate] = useState<string | null>(null);
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
 
   const pickerValue = useMemo(() => {
-    return dueDate ? fromYMD(dueDate) : new Date();
-  }, [dueDate]);
-
-  useEffect(() => {
-    async function loadTask() {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('title, category, due_date')
-        .eq('id', id)
-        .single();
-
-      if (error) {
-        Alert.alert('Load failed', error.message);
-        router.back();
-        return;
-      }
-
-      setTitle(data.title ?? '');
-      setCategory(data.category ?? '');
-      setDueDate(data.due_date ?? null);
-      setLoading(false);
-    }
-
-    if (id) {
-      loadTask();
-    }
-  }, [id]);
+    return serviceDate ? fromYMD(serviceDate) : new Date();
+  }, [serviceDate]);
 
   function onDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
     if (Platform.OS === 'android') {
@@ -81,47 +57,62 @@ export default function EditTaskScreen() {
     }
 
     if (selectedDate) {
-      setDueDate(toYMD(selectedDate));
+      setServiceDate(toYMD(selectedDate));
     }
   }
 
   async function handleSave() {
     if (!title.trim()) {
-      Alert.alert('Missing info', 'Enter a task title.');
+      Alert.alert('Missing info', 'Enter a service title.');
       return;
     }
 
     try {
-      setSaving(true);
+      setLoading(true);
 
-      const { error } = await supabase
-        .from('tasks')
-        .update({
-          title: title.trim(),
-          category: category.trim() || null,
-          due_date: dueDate,
-        })
-        .eq('id', id);
+      const householdId = await getCurrentHouseholdId();
+
+      if (!householdId) {
+        Alert.alert('No household', 'Create a household first.');
+        router.replace('/household/create');
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const user = session?.user;
+
+      const parsedAmount =
+        amount.trim() === '' ? null : Number.parseFloat(amount.trim());
+
+      if (amount.trim() !== '' && Number.isNaN(parsedAmount as number)) {
+        Alert.alert('Invalid amount', 'Enter a valid dollar amount.');
+        return;
+      }
+
+      const { error } = await supabase.from('service_records').insert({
+        household_id: householdId,
+        provider_id: id,
+        title: title.trim(),
+        service_date: serviceDate,
+        amount: parsedAmount,
+        notes: notes.trim() || null,
+        created_by: user?.id ?? null,
+      });
 
       if (error) {
         Alert.alert('Save failed', error.message);
         return;
       }
 
-      router.replace(`/tasks/${id}`);
+      router.replace(`/records/providers/${id}`);
     } catch (error) {
-      Alert.alert('Error', 'Something went wrong saving the task.');
+      Alert.alert('Error', 'Something went wrong saving the service record.');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  }
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
   }
 
   return (
@@ -130,33 +121,25 @@ export default function EditTaskScreen() {
         <Text style={styles.backText}>Back</Text>
       </Pressable>
 
-      <Text style={styles.title}>Edit task</Text>
-      <Text style={styles.subtitle}>Update your household task.</Text>
+      <Text style={styles.title}>Add service record</Text>
+      <Text style={styles.subtitle}>Save work completed by this provider.</Text>
 
       <TextInput
         style={styles.input}
-        placeholder="Task title"
+        placeholder="Service title"
         placeholderTextColor="#6B7280"
         value={title}
         onChangeText={setTitle}
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Category (optional)"
-        placeholderTextColor="#6B7280"
-        value={category}
-        onChangeText={setCategory}
-      />
-
-      <Text style={styles.label}>Due date</Text>
+      <Text style={styles.label}>Service date</Text>
 
       <Pressable style={styles.dateButton} onPress={() => setShowPicker(true)}>
-        <Text style={styles.dateButtonText}>{formatDateLabel(dueDate)}</Text>
+        <Text style={styles.dateButtonText}>{formatDateLabel(serviceDate)}</Text>
       </Pressable>
 
-      {dueDate ? (
-        <Pressable onPress={() => setDueDate(null)} style={styles.clearLink}>
+      {serviceDate ? (
+        <Pressable onPress={() => setServiceDate(null)} style={styles.clearLink}>
           <Text style={styles.clearLinkText}>Clear date</Text>
         </Pressable>
       ) : null}
@@ -170,9 +153,27 @@ export default function EditTaskScreen() {
         />
       ) : null}
 
-      <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
+      <TextInput
+        style={styles.input}
+        placeholder="Amount paid"
+        placeholderTextColor="#6B7280"
+        value={amount}
+        onChangeText={setAmount}
+        keyboardType="decimal-pad"
+      />
+
+      <TextInput
+        style={[styles.input, styles.notesInput]}
+        placeholder="Notes"
+        placeholderTextColor="#6B7280"
+        value={notes}
+        onChangeText={setNotes}
+        multiline
+      />
+
+      <Pressable style={styles.button} onPress={handleSave} disabled={loading}>
         <Text style={styles.buttonText}>
-          {saving ? 'Saving...' : 'Save Changes'}
+          {loading ? 'Saving...' : 'Save Record'}
         </Text>
       </Pressable>
     </View>
@@ -184,12 +185,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8F6F2',
     padding: 24,
-    justifyContent: 'center',
-  },
-  center: {
-    flex: 1,
-    backgroundColor: '#F8F6F2',
-    alignItems: 'center',
     justifyContent: 'center',
   },
   backButton: {
@@ -247,6 +242,10 @@ const styles = StyleSheet.create({
     color: '#2A9D8F',
     fontSize: 14,
     fontWeight: '600',
+  },
+  notesInput: {
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   button: {
     backgroundColor: '#264653',
