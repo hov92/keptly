@@ -8,6 +8,7 @@ export type HouseholdPermissions = {
   canSwitchHouseholds: boolean;
   canManageProviders: boolean;
   canManageServiceRecords: boolean;
+  canEditHousehold: boolean;
 };
 
 export async function getActiveHouseholdPermissions(): Promise<HouseholdPermissions> {
@@ -15,6 +16,7 @@ export async function getActiveHouseholdPermissions(): Promise<HouseholdPermissi
   const role = (activeHousehold?.role ?? null) as HouseholdRole | null;
 
   const isChild = role === 'child';
+  const isOwner = role === 'owner';
 
   return {
     role,
@@ -22,5 +24,6 @@ export async function getActiveHouseholdPermissions(): Promise<HouseholdPermissi
     canSwitchHouseholds: !isChild,
     canManageProviders: !isChild,
     canManageServiceRecords: !isChild,
+    canEditHousehold: isOwner,
   };
 }

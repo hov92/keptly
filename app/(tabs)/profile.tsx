@@ -14,6 +14,7 @@ type PermissionsState = {
   canSwitchHouseholds: boolean;
   canManageProviders: boolean;
   canManageServiceRecords: boolean;
+  canEditHousehold: boolean;
 };
 
 export default function ProfileScreen() {
@@ -24,6 +25,7 @@ export default function ProfileScreen() {
     canSwitchHouseholds: false,
     canManageProviders: false,
     canManageServiceRecords: false,
+    canEditHousehold: false,
   });
 
   useFocusEffect(
@@ -56,11 +58,25 @@ export default function ProfileScreen() {
         <Text style={styles.cardTitle}>Current household</Text>
         <Text style={styles.cardText}>
           {activeHousehold
-            ? `${activeHousehold.name}${activeHousehold.home_type ? ` • ${activeHousehold.home_type}` : ''}`
+            ? `${activeHousehold.name}${
+                activeHousehold.home_type ? ` • ${activeHousehold.home_type}` : ''
+              }`
             : 'No active household selected'}
         </Text>
         <Text style={styles.roleText}>Role: {permissions.role ?? 'unknown'}</Text>
       </Pressable>
+
+      {permissions.canEditHousehold ? (
+        <Pressable
+          style={styles.cardButton}
+          onPress={() => router.push('/household/edit')}
+        >
+          <Text style={styles.cardTitle}>Edit household</Text>
+          <Text style={styles.cardText}>
+            Update the household name and home type.
+          </Text>
+        </Pressable>
+      ) : null}
 
       {permissions.canSwitchHouseholds ? (
         <Pressable
@@ -80,7 +96,7 @@ export default function ProfileScreen() {
       >
         <Text style={styles.cardTitle}>Household members</Text>
         <Text style={styles.cardText}>
-          View members and pending invites for this household.
+          View members, roles, and pending invites.
         </Text>
       </Pressable>
 
@@ -109,20 +125,18 @@ export default function ProfileScreen() {
       ) : null}
 
       <Pressable
-  style={styles.cardButton}
-  onPress={() => router.push('/household/activity')}
->
-  <Text style={styles.cardTitle}>Household activity</Text>
-  <Text style={styles.cardText}>
-    See invite activity, role changes, and member updates.
-  </Text>
-</Pressable>
+        style={styles.cardButton}
+        onPress={() => router.push('/household/activity')}
+      >
+        <Text style={styles.cardTitle}>Household activity</Text>
+        <Text style={styles.cardText}>
+          See invite activity, role changes, and member updates.
+        </Text>
+      </Pressable>
 
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Log out</Text>
       </Pressable>
-
-      
     </AppScreen>
   );
 }

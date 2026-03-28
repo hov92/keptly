@@ -128,8 +128,27 @@ export default function TasksScreen() {
   );
 
   async function toggleComplete(task: Task) {
-    if (role === 'child' && task.assigned_to !== currentUserId) {
-      Alert.alert('Restricted', 'You can only update tasks assigned to you.');
+    if (role === 'child') {
+      if (task.assigned_to !== currentUserId) {
+        Alert.alert('Restricted', 'You can only complete tasks assigned to you.');
+        return;
+      }
+
+      if (task.is_completed) {
+        Alert.alert('Restricted', 'You cannot reopen tasks.');
+        return;
+      }
+
+      const { error } = await supabase.rpc('mark_my_task_done', {
+        task_id: task.id,
+      });
+
+      if (error) {
+        Alert.alert('Update failed', error.message);
+        return;
+      }
+
+      loadTasks();
       return;
     }
 
@@ -152,6 +171,8 @@ export default function TasksScreen() {
       : tasks;
 
   function renderItem({ item }: { item: Task }) {
+    const childDone = role === 'child' && item.is_completed;
+
     return (
       <Pressable
         style={styles.card}
@@ -171,8 +192,10 @@ export default function TasksScreen() {
             style={[
               styles.statusPill,
               item.is_completed ? styles.donePill : styles.openPill,
+              childDone && styles.statusDisabled,
             ]}
             onPress={() => toggleComplete(item)}
+            disabled={childDone}
           >
             <Text
               style={[
@@ -379,6 +402,9 @@ const styles = StyleSheet.create({
   },
   openPill: {
     backgroundColor: '#EEF2F6',
+  },
+  statusDisabled: {
+    opacity: 0.6,
   },
   statusText: {
     fontSize: 12,

@@ -136,8 +136,30 @@ export default function TaskDetailScreen() {
   async function handleToggleComplete() {
     if (!task) return;
 
-    if (role === 'child' && task.assigned_to !== currentUserId) {
-      Alert.alert('Restricted', 'You can only update tasks assigned to you.');
+    if (role === 'child') {
+      if (task.assigned_to !== currentUserId) {
+        Alert.alert('Restricted', 'You can only complete tasks assigned to you.');
+        return;
+      }
+
+      if (task.is_completed) {
+        Alert.alert('Restricted', 'You cannot reopen tasks.');
+        return;
+      }
+
+      const { error } = await supabase.rpc('mark_my_task_done', {
+        task_id: task.id,
+      });
+
+      if (error) {
+        Alert.alert('Update failed', error.message);
+        return;
+      }
+
+      setTask({
+        ...task,
+        is_completed: true,
+      });
       return;
     }
 
@@ -205,7 +227,7 @@ export default function TaskDetailScreen() {
 
       <Pressable style={styles.primaryButton} onPress={handleToggleComplete}>
         <Text style={styles.primaryButtonText}>
-          {task.is_completed ? 'Mark Open' : 'Mark Done'}
+          {task.is_completed ? 'Done' : 'Mark Done'}
         </Text>
       </Pressable>
 
