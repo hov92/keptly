@@ -108,9 +108,21 @@ export default function ProfileScreen() {
         </>
       ) : null}
 
+      <Pressable
+  style={styles.cardButton}
+  onPress={() => router.push('/household/activity')}
+>
+  <Text style={styles.cardTitle}>Household activity</Text>
+  <Text style={styles.cardText}>
+    See invite activity, role changes, and member updates.
+  </Text>
+</Pressable>
+
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Log out</Text>
       </Pressable>
+
+      
     </AppScreen>
   );
 }

@@ -1,13 +1,46 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Tabs } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Tabs, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+
+import { getActiveHouseholdPermissions } from '../../lib/permissions';
 
 export default function TabsLayout() {
+  const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
+
+  async function loadPermissions() {
+    try {
+      setLoading(true);
+      const permissions = await getActiveHouseholdPermissions();
+      setRole(permissions.role);
+    } catch (error) {
+      console.error(error);
+      setRole(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPermissions();
+    }, [])
+  );
+
+  if (loading) {
+    return null;
+  }
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#264653',
-        tabBarInactiveTintColor: '#8A8F98',
+        tabBarInactiveTintColor: '#7A7F87',
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E8E3DA',
+        },
       }}
     >
       <Tabs.Screen
@@ -15,7 +48,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
-            <FontAwesome name="home" size={size} color={color} />
+            <Ionicons name="home-outline" size={size} color={color} />
           ),
         }}
       />
@@ -25,7 +58,7 @@ export default function TabsLayout() {
         options={{
           title: 'Tasks',
           tabBarIcon: ({ color, size }) => (
-            <FontAwesome name="check-square-o" size={size} color={color} />
+            <Ionicons name="checkmark-circle-outline" size={size} color={color} />
           ),
         }}
       />
@@ -35,7 +68,7 @@ export default function TabsLayout() {
         options={{
           title: 'Calendar',
           tabBarIcon: ({ color, size }) => (
-            <FontAwesome name="calendar" size={size} color={color} />
+            <Ionicons name="calendar-outline" size={size} color={color} />
           ),
         }}
       />
@@ -43,9 +76,10 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="records"
         options={{
+          href: role === 'child' ? null : undefined,
           title: 'Records',
           tabBarIcon: ({ color, size }) => (
-            <FontAwesome name="folder-open" size={size} color={color} />
+            <Ionicons name="folder-outline" size={size} color={color} />
           ),
         }}
       />
@@ -55,7 +89,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <FontAwesome name="user" size={size} color={color} />
+            <Ionicons name="person-outline" size={size} color={color} />
           ),
         }}
       />

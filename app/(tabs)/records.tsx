@@ -5,15 +5,18 @@ import {
   StyleSheet,
   Text,
   View,
+  Alert,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
 import { Screen } from '../../components/screen';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
+import { getActiveHouseholdPermissions } from '../../lib/permissions';
 
 export default function RecordsScreen() {
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
 
   async function checkHousehold() {
     try {
@@ -24,6 +27,15 @@ export default function RecordsScreen() {
       if (!householdId || householdId === 'null' || householdId === 'undefined') {
         const route = await getNoHouseholdRoute();
         router.replace(route);
+        return;
+      }
+
+      const permissions = await getActiveHouseholdPermissions();
+      setRole(permissions.role);
+
+      if (permissions.role === 'child') {
+        Alert.alert('Restricted', 'You do not have access to records.');
+        router.replace('/(tabs)');
         return;
       }
     } catch (error) {
@@ -45,6 +57,10 @@ export default function RecordsScreen() {
         <ActivityIndicator size="large" />
       </View>
     );
+  }
+
+  if (role === 'child') {
+    return null;
   }
 
   return (

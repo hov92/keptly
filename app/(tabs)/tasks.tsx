@@ -15,6 +15,7 @@ import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
+import { getActiveHouseholdPermissions } from '../../lib/permissions';
 
 type Task = {
   id: string;
@@ -40,6 +41,7 @@ export default function TasksScreen() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<TaskFilter>('all');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
 
   useEffect(() => {
     if (params.filter === 'assigned') {
@@ -59,6 +61,9 @@ export default function TasksScreen() {
 
       const userId = session?.user?.id ?? null;
       setCurrentUserId(userId);
+
+      const permissions = await getActiveHouseholdPermissions();
+      setRole(permissions.role);
 
       const householdId = await getCurrentHouseholdId();
 
@@ -105,6 +110,10 @@ export default function TasksScreen() {
             : null,
         }))
       );
+
+      if (permissions.role === 'child') {
+        setActiveFilter('assigned');
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -119,6 +128,11 @@ export default function TasksScreen() {
   );
 
   async function toggleComplete(task: Task) {
+    if (role === 'child' && task.assigned_to !== currentUserId) {
+      Alert.alert('Restricted', 'You can only update tasks assigned to you.');
+      return;
+    }
+
     const { error } = await supabase
       .from('tasks')
       .update({ is_completed: !task.is_completed })
@@ -133,7 +147,7 @@ export default function TasksScreen() {
   }
 
   const visibleTasks =
-    activeFilter === 'assigned' && currentUserId
+    activeFilter === 'assigned' || role === 'child'
       ? tasks.filter((task) => task.assigned_to === currentUserId)
       : tasks;
 
@@ -202,31 +216,35 @@ export default function TasksScreen() {
           <Text style={styles.subtitle}>Manage household tasks.</Text>
         </View>
 
-        <Pressable
-          style={styles.addButton}
-          onPress={() => router.push('/tasks/new')}
-        >
-          <Text style={styles.addButtonText}>Add</Text>
-        </Pressable>
+        {role !== 'child' ? (
+          <Pressable
+            style={styles.addButton}
+            onPress={() => router.push('/tasks/new')}
+          >
+            <Text style={styles.addButtonText}>Add</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.filterRow}>
-        <Pressable
-          style={[
-            styles.filterChip,
-            activeFilter === 'all' && styles.filterChipActive,
-          ]}
-          onPress={() => setActiveFilter('all')}
-        >
-          <Text
+        {role !== 'child' ? (
+          <Pressable
             style={[
-              styles.filterChipText,
-              activeFilter === 'all' && styles.filterChipTextActive,
+              styles.filterChip,
+              activeFilter === 'all' && styles.filterChipActive,
             ]}
+            onPress={() => setActiveFilter('all')}
           >
-            All
-          </Text>
-        </Pressable>
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'all' && styles.filterChipTextActive,
+              ]}
+            >
+              All
+            </Text>
+          </Pressable>
+        ) : null}
 
         <Pressable
           style={[
@@ -254,7 +272,7 @@ export default function TasksScreen() {
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>
-              {activeFilter === 'assigned'
+              {activeFilter === 'assigned' || role === 'child'
                 ? 'No tasks assigned to you.'
                 : 'No tasks yet.'}
             </Text>

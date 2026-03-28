@@ -73,6 +73,7 @@ export default function RootLayout() {
         <Stack.Screen name="household/invite" />
         <Stack.Screen name="household/members" />
         <Stack.Screen name="household/switch" />
+        <Stack.Screen name="household/activity" />
       </Stack.Protected>
     </Stack>
   );

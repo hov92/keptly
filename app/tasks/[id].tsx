@@ -13,6 +13,7 @@ import { supabase } from '../../lib/supabase';
 import { AppScreen } from '../../components/app-screen';
 import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
+import { getActiveHouseholdPermissions } from '../../lib/permissions';
 
 type TaskDetail = {
   id: string;
@@ -33,10 +34,22 @@ export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
 
   useEffect(() => {
     async function loadTask() {
       try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const userId = session?.user?.id ?? null;
+        setCurrentUserId(userId);
+
+        const permissions = await getActiveHouseholdPermissions();
+        setRole(permissions.role);
+
         const { data, error } = await supabase
           .from('tasks')
           .select('id, title, category, due_date, is_completed, assigned_to')
@@ -50,6 +63,12 @@ export default function TaskDetailScreen() {
         }
 
         const taskRow = data as TaskDetail;
+
+        if (permissions.role === 'child' && taskRow.assigned_to !== userId) {
+          Alert.alert('Restricted', 'You can only view tasks assigned to you.');
+          router.replace('/(tabs)/tasks');
+          return;
+        }
 
         let assignedName: string | null = null;
 
@@ -90,6 +109,11 @@ export default function TaskDetailScreen() {
   async function handleDelete() {
     if (!task) return;
 
+    if (role === 'child') {
+      Alert.alert('Restricted', 'You cannot delete tasks.');
+      return;
+    }
+
     Alert.alert('Delete task?', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -111,6 +135,11 @@ export default function TaskDetailScreen() {
 
   async function handleToggleComplete() {
     if (!task) return;
+
+    if (role === 'child' && task.assigned_to !== currentUserId) {
+      Alert.alert('Restricted', 'You can only update tasks assigned to you.');
+      return;
+    }
 
     const { error } = await supabase
       .from('tasks')
@@ -180,16 +209,20 @@ export default function TaskDetailScreen() {
         </Text>
       </Pressable>
 
-      <Pressable
-        style={styles.secondaryButton}
-        onPress={() => router.push(`/tasks/edit/${task.id}`)}
-      >
-        <Text style={styles.secondaryButtonText}>Edit Task</Text>
-      </Pressable>
+      {role !== 'child' ? (
+        <>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => router.push(`/tasks/edit/${task.id}`)}
+          >
+            <Text style={styles.secondaryButtonText}>Edit Task</Text>
+          </Pressable>
 
-      <Pressable style={styles.deleteButton} onPress={handleDelete}>
-        <Text style={styles.deleteButtonText}>Delete Task</Text>
-      </Pressable>
+          <Pressable style={styles.deleteButton} onPress={handleDelete}>
+            <Text style={styles.deleteButtonText}>Delete Task</Text>
+          </Pressable>
+        </>
+      ) : null}
     </AppScreen>
   );
 }

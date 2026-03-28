@@ -140,7 +140,7 @@ export default function HouseholdInvitesScreen() {
         incoming.map((invite) => (
           <View key={invite.id} style={styles.card}>
             <Text style={styles.cardTitle}>
-              {invite.households?.name ?? 'Household invite'}
+              {invite.households?.[0]?.name ?? 'Household invite'}
             </Text>
             <Text style={styles.cardMeta}>{invite.invited_email}</Text>
             <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>

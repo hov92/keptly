@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getCurrentHouseholdId } from './household';
+import { logHouseholdActivity } from './household-activity';
 
 export type HouseholdInvite = {
   id: string;
@@ -10,7 +11,7 @@ export type HouseholdInvite = {
   status: 'pending' | 'accepted' | 'declined';
   created_at: string;
   responded_at: string | null;
-  households?: { name: string } | null;
+  households?: { name: string }[] | null;
 };
 
 export async function createHouseholdInvite(params: {
@@ -40,6 +41,16 @@ export async function createHouseholdInvite(params: {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logHouseholdActivity({
+    householdId,
+    actorUserId: userId ?? null,
+    action: 'invite_sent',
+    details: {
+      invited_email: normalized,
+      invited_role: role,
+    },
+  });
 }
 
 export async function getOutgoingHouseholdInvites() {
@@ -78,10 +89,20 @@ export async function getIncomingHouseholdInvites(email: string) {
     throw new Error(error.message);
   }
 
-  return (data ?? []) as unknown as HouseholdInvite[];
+  return (data ?? []) as HouseholdInvite[];
 }
 
 export async function cancelHouseholdInvite(inviteId: string) {
+  const { data: inviteData, error: inviteLoadError } = await supabase
+    .from('household_invites')
+    .select('household_id, invited_email, invited_role, invited_by')
+    .eq('id', inviteId)
+    .single();
+
+  if (inviteLoadError) {
+    throw new Error(inviteLoadError.message);
+  }
+
   const { error } = await supabase
     .from('household_invites')
     .delete()
@@ -90,9 +111,33 @@ export async function cancelHouseholdInvite(inviteId: string) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logHouseholdActivity({
+    householdId: inviteData.household_id,
+    actorUserId: inviteData.invited_by ?? null,
+    action: 'invite_canceled',
+    details: {
+      invited_email: inviteData.invited_email,
+      invited_role: inviteData.invited_role,
+    },
+  });
 }
 
 export async function declineHouseholdInvite(inviteId: string) {
+  const { data: inviteData, error: inviteLoadError } = await supabase
+    .from('household_invites')
+    .select('household_id, invited_email, invited_role')
+    .eq('id', inviteId)
+    .single();
+
+  if (inviteLoadError) {
+    throw new Error(inviteLoadError.message);
+  }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
   const { error } = await supabase
     .from('household_invites')
     .update({
@@ -104,6 +149,16 @@ export async function declineHouseholdInvite(inviteId: string) {
   if (error) {
     throw new Error(error.message);
   }
+
+  await logHouseholdActivity({
+    householdId: inviteData.household_id,
+    actorUserId: session?.user?.id ?? null,
+    action: 'invite_declined',
+    details: {
+      invited_email: inviteData.invited_email,
+      invited_role: inviteData.invited_role,
+    },
+  });
 }
 
 export async function acceptHouseholdInvite(params: {
@@ -114,7 +169,7 @@ export async function acceptHouseholdInvite(params: {
 
   const { data: inviteData, error: inviteLoadError } = await supabase
     .from('household_invites')
-    .select('household_id, invited_role')
+    .select('household_id, invited_role, invited_email')
     .eq('id', inviteId)
     .single();
 
@@ -165,4 +220,15 @@ export async function acceptHouseholdInvite(params: {
   if (inviteError) {
     throw new Error(inviteError.message);
   }
+
+  await logHouseholdActivity({
+    householdId,
+    actorUserId: userId,
+    targetUserId: userId,
+    action: 'invite_accepted',
+    details: {
+      invited_email: inviteData.invited_email,
+      invited_role: invitedRole,
+    },
+  });
 }
