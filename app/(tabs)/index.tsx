@@ -22,6 +22,7 @@ type Task = {
   is_completed: boolean;
   created_at: string;
   assigned_to: string | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | null;
   assigned_name?: string | null;
 };
 
@@ -35,6 +36,10 @@ type SharedMemberName = {
   id: string;
   full_name: string | null;
 };
+
+function shouldHideFromDefaultList(task: Task) {
+  return task.is_completed && !!task.recurrence;
+}
 
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
@@ -75,7 +80,7 @@ export default function HomeScreen() {
       const { data: tasksData, error: tasksError } = await supabase
         .from('tasks')
         .select(
-          'id, title, category, due_date, is_completed, created_at, assigned_to'
+          'id, title, category, due_date, is_completed, created_at, assigned_to, recurrence'
         )
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
@@ -85,7 +90,9 @@ export default function HomeScreen() {
         return;
       }
 
-      const taskRows = (tasksData ?? []) as Task[];
+      const taskRows = ((tasksData ?? []) as Task[]).filter(
+        (task) => !shouldHideFromDefaultList(task)
+      );
 
       const { data: namesData, error: namesError } = await supabase.rpc(
         'get_shared_household_member_names'
@@ -206,6 +213,12 @@ export default function HomeScreen() {
         <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
           {task.due_date ? `Due: ${task.due_date}` : 'No due date'}
         </Text>
+
+        {task.recurrence ? (
+          <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
+            Repeats: {task.recurrence}
+          </Text>
+        ) : null}
 
         <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
           Assigned to: {task.assigned_name || 'Unassigned'}

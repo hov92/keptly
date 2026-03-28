@@ -16,14 +16,19 @@ import { getCurrentHouseholdId } from '../../lib/household';
 import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
+import { completeTaskWithRecurrence } from '../../lib/task-recurrence';
 
 type Task = {
   id: string;
+  household_id: string;
   title: string;
   category: string | null;
   due_date: string | null;
   is_completed: boolean;
   assigned_to: string | null;
+  created_by: string | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | null;
+  parent_task_id: string | null;
   assigned_name?: string | null;
 };
 
@@ -33,6 +38,10 @@ type SharedMemberName = {
   id: string;
   full_name: string | null;
 };
+
+function shouldHideFromDefaultList(task: Task) {
+  return task.is_completed && !!task.recurrence;
+}
 
 export default function TasksScreen() {
   const params = useLocalSearchParams<{ filter?: string }>();
@@ -75,7 +84,9 @@ export default function TasksScreen() {
 
       const { data, error } = await supabase
         .from('tasks')
-        .select('id, title, category, due_date, is_completed, assigned_to')
+        .select(
+          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, parent_task_id'
+        )
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
 
@@ -84,7 +95,9 @@ export default function TasksScreen() {
         return;
       }
 
-      const taskRows = (data ?? []) as Task[];
+      const taskRows = ((data ?? []) as Task[]).filter(
+        (task) => !shouldHideFromDefaultList(task)
+      );
 
       const { data: namesData, error: namesError } = await supabase.rpc(
         'get_shared_household_member_names'
@@ -152,9 +165,22 @@ export default function TasksScreen() {
       return;
     }
 
+    if (!task.is_completed) {
+      try {
+        await completeTaskWithRecurrence(task);
+        loadTasks();
+        return;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Could not complete task.';
+        Alert.alert('Update failed', message);
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from('tasks')
-      .update({ is_completed: !task.is_completed })
+      .update({ is_completed: false })
       .eq('id', task.id);
 
     if (error) {
@@ -214,6 +240,10 @@ export default function TasksScreen() {
 
         {item.due_date ? (
           <Text style={styles.meta}>Due: {item.due_date}</Text>
+        ) : null}
+
+        {item.recurrence ? (
+          <Text style={styles.meta}>Repeats: {item.recurrence}</Text>
         ) : null}
 
         <Text style={styles.meta}>

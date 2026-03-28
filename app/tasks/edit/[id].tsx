@@ -12,6 +12,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { CategoryPicker } from '../../../components/category-picker';
 import { AssigneePicker } from '../../../components/assignee-picker';
+import { WeekdayPicker, WeekdayCode } from '../../../components/weekday-picker';
 import { TASK_CATEGORIES } from '../../../constants/categories';
 import {
   getMergedTaskCategories,
@@ -23,14 +24,26 @@ import { FormInput } from '../../../components/form-input';
 import { DateField } from '../../../components/date-field';
 import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../../constants/theme';
+import { getActiveHouseholdPermissions } from '../../../lib/permissions';
 
 type AssigneeOption = {
   label: string;
   value: string;
 };
 
+const RECURRENCE_OPTIONS = [
+  'None',
+  'daily',
+  'weekly',
+  'monthly',
+  'weekdays',
+] as const;
+
+type RecurrenceValue = (typeof RECURRENCE_OPTIONS)[number];
+
 export default function EditTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [customCategory, setCustomCategory] = useState('');
@@ -40,47 +53,90 @@ export default function EditTaskScreen() {
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState<string | null>(null);
+  const [recurrence, setRecurrence] = useState<RecurrenceValue>('None');
+  const [recurrenceDays, setRecurrenceDays] = useState<WeekdayCode[]>([
+    'mon',
+    'tue',
+    'wed',
+    'thu',
+    'fri',
+  ]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
 
   const isOther = category === 'Other';
+  const isWeekdays = recurrence === 'weekdays';
 
   useEffect(() => {
-    getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
-    getHouseholdMemberOptions().then(setAssigneeOptions).catch(console.error);
-  }, []);
+    async function loadData() {
+      try {
+        const permissions = await getActiveHouseholdPermissions();
+        setRole(permissions.role);
 
-  useEffect(() => {
-    async function loadTask() {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('title, category, due_date, assigned_to')
-        .eq('id', id)
-        .single();
+        if (permissions.role === 'child') {
+          Alert.alert('Restricted', 'You cannot edit tasks.');
+          router.replace('/(tabs)/tasks');
+          return;
+        }
 
-      if (error) {
-        Alert.alert('Load failed', error.message);
-        router.back();
-        return;
-      }
+        const [mergedCategories, memberOptions] = await Promise.all([
+          getMergedTaskCategories(TASK_CATEGORIES),
+          getHouseholdMemberOptions(),
+        ]);
 
-      const loadedCategory = data.category ?? '';
-      const isPreset =
-        loadedCategory === '' ||
-        TASK_CATEGORIES.includes(
-          loadedCategory as (typeof TASK_CATEGORIES)[number]
+        setCategoryOptions(mergedCategories);
+        setAssigneeOptions(memberOptions);
+
+        const { data, error } = await supabase
+          .from('tasks')
+          .select(
+            'title, category, due_date, assigned_to, recurrence, recurrence_days'
+          )
+          .eq('id', id)
+          .single();
+
+        if (error) {
+          Alert.alert('Load failed', error.message);
+          router.back();
+          return;
+        }
+
+        const loadedCategory = data.category ?? '';
+
+        if (loadedCategory && !mergedCategories.includes(loadedCategory)) {
+          setCategory('Other');
+          setCustomCategory(loadedCategory);
+        } else {
+          setCategory(loadedCategory);
+          setCustomCategory('');
+        }
+
+        setTitle(data.title ?? '');
+        setDueDate(data.due_date ?? null);
+        setAssignedTo(data.assigned_to ?? '');
+        setRecurrence((data.recurrence ?? 'None') as RecurrenceValue);
+
+        const loadedDays = Array.isArray(data.recurrence_days)
+          ? (data.recurrence_days as WeekdayCode[])
+          : [];
+
+        setRecurrenceDays(
+          loadedDays.length > 0
+            ? loadedDays
+            : ['mon', 'tue', 'wed', 'thu', 'fri']
         );
-
-      setTitle(data.title ?? '');
-      setCategory(isPreset ? loadedCategory : 'Other');
-      setCustomCategory(isPreset ? '' : loadedCategory);
-      setDueDate(data.due_date ?? null);
-      setAssignedTo(data.assigned_to ?? '');
-      setLoading(false);
+      } catch (error) {
+        console.error(error);
+        Alert.alert('Load failed', 'Could not load task.');
+        router.back();
+      } finally {
+        setLoading(false);
+      }
     }
 
     if (id) {
-      loadTask();
+      loadData();
     }
   }, [id]);
 
@@ -95,9 +151,19 @@ export default function EditTaskScreen() {
       return;
     }
 
+    if (isWeekdays && recurrenceDays.length === 0) {
+      Alert.alert('Missing info', 'Select at least one weekday.');
+      return;
+    }
+
     try {
       setSaving(true);
 
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const userId = session?.user?.id ?? null;
       const finalCategory = isOther ? customCategory.trim() : category || null;
 
       const { error } = await supabase
@@ -107,6 +173,8 @@ export default function EditTaskScreen() {
           category: finalCategory,
           due_date: dueDate,
           assigned_to: assignedTo || null,
+          recurrence: recurrence === 'None' ? null : recurrence,
+          recurrence_days: isWeekdays ? recurrenceDays : null,
         })
         .eq('id', id);
 
@@ -115,12 +183,8 @@ export default function EditTaskScreen() {
         return;
       }
 
-      if (isOther && finalCategory) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        await saveCustomTaskCategory(finalCategory, session?.user?.id);
+      if (isOther && finalCategory && userId) {
+        await saveCustomTaskCategory(finalCategory, userId);
       }
 
       router.replace(`/tasks/${id}`);
@@ -139,11 +203,15 @@ export default function EditTaskScreen() {
     );
   }
 
+  if (role === 'child') {
+    return null;
+  }
+
   return (
     <AppScreen>
       <FormScreenHeader
         title="Edit task"
-        subtitle="Update your household task."
+        subtitle="Update this household task."
       />
 
       <FormInput
@@ -182,6 +250,18 @@ export default function EditTaskScreen() {
       />
 
       <DateField label="Due date" value={dueDate} onChange={setDueDate} />
+
+      <CategoryPicker
+        label="Repeats"
+        value={recurrence}
+        onChange={(value) => setRecurrence((value || 'None') as RecurrenceValue)}
+        options={[...RECURRENCE_OPTIONS]}
+        placeholder="Select recurrence"
+      />
+
+      {isWeekdays ? (
+        <WeekdayPicker value={recurrenceDays} onChange={setRecurrenceDays} />
+      ) : null}
 
       <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
         <Text style={styles.buttonText}>

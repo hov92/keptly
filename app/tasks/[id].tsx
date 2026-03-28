@@ -14,14 +14,19 @@ import { AppScreen } from '../../components/app-screen';
 import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
+import { completeTaskWithRecurrence } from '../../lib/task-recurrence';
 
 type TaskDetail = {
   id: string;
+  household_id: string;
   title: string;
   category: string | null;
   due_date: string | null;
   is_completed: boolean;
   assigned_to: string | null;
+  created_by: string | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | null;
+  parent_task_id: string | null;
   assigned_name?: string | null;
 };
 
@@ -52,7 +57,9 @@ export default function TaskDetailScreen() {
 
         const { data, error } = await supabase
           .from('tasks')
-          .select('id, title, category, due_date, is_completed, assigned_to')
+          .select(
+            'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, parent_task_id'
+          )
           .eq('id', id)
           .single();
 
@@ -163,9 +170,25 @@ export default function TaskDetailScreen() {
       return;
     }
 
+    if (!task.is_completed) {
+      try {
+        await completeTaskWithRecurrence(task);
+        setTask({
+          ...task,
+          is_completed: true,
+        });
+        return;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Could not complete task.';
+        Alert.alert('Update failed', message);
+        return;
+      }
+    }
+
     const { error } = await supabase
       .from('tasks')
-      .update({ is_completed: !task.is_completed })
+      .update({ is_completed: false })
       .eq('id', task.id);
 
     if (error) {
@@ -175,7 +198,7 @@ export default function TaskDetailScreen() {
 
     setTask({
       ...task,
-      is_completed: !task.is_completed,
+      is_completed: false,
     });
   }
 
@@ -222,6 +245,10 @@ export default function TaskDetailScreen() {
 
         <Text style={styles.meta}>
           Due date: {task.due_date || 'No date selected'}
+        </Text>
+
+        <Text style={styles.meta}>
+          Repeats: {task.recurrence ? task.recurrence : 'Does not repeat'}
         </Text>
       </View>
 

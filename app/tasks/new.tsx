@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { CategoryPicker } from '../../components/category-picker';
 import { AssigneePicker } from '../../components/assignee-picker';
+import { WeekdayPicker, WeekdayCode } from '../../components/weekday-picker';
 import { TASK_CATEGORIES } from '../../constants/categories';
 import {
   getMergedTaskCategories,
@@ -24,6 +25,16 @@ type AssigneeOption = {
   value: string;
 };
 
+const RECURRENCE_OPTIONS = [
+  'None',
+  'daily',
+  'weekly',
+  'monthly',
+  'weekdays',
+] as const;
+
+type RecurrenceValue = (typeof RECURRENCE_OPTIONS)[number];
+
 export default function NewTaskScreen() {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
@@ -34,9 +45,18 @@ export default function NewTaskScreen() {
   const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
   const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState<string | null>(null);
+  const [recurrence, setRecurrence] = useState<RecurrenceValue>('None');
+  const [recurrenceDays, setRecurrenceDays] = useState<WeekdayCode[]>([
+    'mon',
+    'tue',
+    'wed',
+    'thu',
+    'fri',
+  ]);
   const [loading, setLoading] = useState(false);
 
   const isOther = category === 'Other';
+  const isWeekdays = recurrence === 'weekdays';
 
   useEffect(() => {
     getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
@@ -51,6 +71,11 @@ export default function NewTaskScreen() {
 
     if (isOther && !customCategory.trim()) {
       Alert.alert('Missing info', 'Enter a custom category.');
+      return;
+    }
+
+    if (isWeekdays && recurrenceDays.length === 0) {
+      Alert.alert('Missing info', 'Select at least one weekday.');
       return;
     }
 
@@ -85,6 +110,8 @@ export default function NewTaskScreen() {
         due_date: dueDate,
         assigned_to: assignedTo || null,
         created_by: user.id,
+        recurrence: recurrence === 'None' ? null : recurrence,
+        recurrence_days: isWeekdays ? recurrenceDays : null,
       });
 
       if (error) {
@@ -147,6 +174,18 @@ export default function NewTaskScreen() {
       />
 
       <DateField label="Due date" value={dueDate} onChange={setDueDate} />
+
+      <CategoryPicker
+        label="Repeats"
+        value={recurrence}
+        onChange={(value) => setRecurrence((value || 'None') as RecurrenceValue)}
+        options={[...RECURRENCE_OPTIONS]}
+        placeholder="Select recurrence"
+      />
+
+      {isWeekdays ? (
+        <WeekdayPicker value={recurrenceDays} onChange={setRecurrenceDays} />
+      ) : null}
 
       <Pressable
         style={styles.button}
