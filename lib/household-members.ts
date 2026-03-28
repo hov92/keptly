@@ -11,27 +11,54 @@ export type HouseholdMember = {
   } | null;
 };
 
+type SharedMemberName = {
+  id: string;
+  full_name: string | null;
+};
+
 export async function getHouseholdMembers() {
   const householdId = await getCurrentHouseholdId();
   if (!householdId) return [];
 
-  const { data, error } = await supabase
+  const { data: membersData, error: membersError } = await supabase
     .from('household_members')
-    .select('id, household_id, user_id, role, profiles(full_name)')
+    .select('id, household_id, user_id, role')
     .eq('household_id', householdId);
 
-  if (error) {
-    throw new Error(error.message);
+  if (membersError) {
+    throw new Error(membersError.message);
   }
 
-  return (data ?? []) as unknown as HouseholdMember[];
+  const members = (membersData ?? []) as Omit<HouseholdMember, 'profiles'>[];
+
+  const { data: namesData, error: namesError } = await supabase.rpc(
+    'get_shared_household_member_names'
+  );
+
+  if (namesError) {
+    throw new Error(namesError.message);
+  }
+
+  const nameMap = new Map(
+    ((namesData ?? []) as SharedMemberName[]).map((row) => [
+      row.id,
+      row.full_name,
+    ])
+  );
+
+  return members.map((member) => ({
+    ...member,
+    profiles: {
+      full_name: nameMap.get(member.user_id) ?? null,
+    },
+  })) as HouseholdMember[];
 }
 
 export async function getHouseholdMemberOptions() {
   const members = await getHouseholdMembers();
 
   return members.map((member) => ({
-    label: member.profiles?.full_name || member.user_id,
+    label: member.profiles?.full_name || 'Household member',
     value: member.user_id,
   }));
 }

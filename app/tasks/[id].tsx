@@ -21,9 +21,12 @@ type TaskDetail = {
   due_date: string | null;
   is_completed: boolean;
   assigned_to: string | null;
-  profiles?: {
-    full_name: string | null;
-  } | null;
+  assigned_name?: string | null;
+};
+
+type SharedMemberName = {
+  id: string;
+  full_name: string | null;
 };
 
 export default function TaskDetailScreen() {
@@ -33,22 +36,50 @@ export default function TaskDetailScreen() {
 
   useEffect(() => {
     async function loadTask() {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select(
-          'id, title, category, due_date, is_completed, assigned_to, profiles!tasks_assigned_to_fkey(full_name)'
-        )
-        .eq('id', id)
-        .single();
+      try {
+        const { data, error } = await supabase
+          .from('tasks')
+          .select('id, title, category, due_date, is_completed, assigned_to')
+          .eq('id', id)
+          .single();
 
-      if (error) {
-        Alert.alert('Load failed', error.message);
-        router.back();
-        return;
+        if (error) {
+          Alert.alert('Load failed', error.message);
+          setLoading(false);
+          return;
+        }
+
+        const taskRow = data as TaskDetail;
+
+        let assignedName: string | null = null;
+
+        if (taskRow.assigned_to) {
+          const { data: namesData, error: namesError } = await supabase.rpc(
+            'get_shared_household_member_names'
+          );
+
+          if (!namesError) {
+            const nameMap = new Map(
+              ((namesData ?? []) as SharedMemberName[]).map((row) => [
+                row.id,
+                row.full_name,
+              ])
+            );
+
+            assignedName = nameMap.get(taskRow.assigned_to) ?? null;
+          }
+        }
+
+        setTask({
+          ...taskRow,
+          assigned_name: assignedName,
+        });
+      } catch (error) {
+        console.error(error);
+        Alert.alert('Load failed', 'Could not load task details.');
+      } finally {
+        setLoading(false);
       }
-
-      setTask(data as unknown as TaskDetail);
-      setLoading(false);
     }
 
     if (id) {
@@ -72,7 +103,7 @@ export default function TaskDetailScreen() {
             return;
           }
 
-          router.replace('/tasks');
+          router.replace('/(tabs)/tasks');
         },
       },
     ]);
@@ -107,13 +138,14 @@ export default function TaskDetailScreen() {
 
   if (!task) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>Task not found.</Text>
-      </View>
+      <AppScreen>
+        <FormScreenHeader
+          title="Task details"
+          subtitle="Could not load this task."
+        />
+      </AppScreen>
     );
   }
-
-  const assignee = task.profiles?.full_name || null;
 
   return (
     <AppScreen>
@@ -130,7 +162,7 @@ export default function TaskDetailScreen() {
         </Text>
 
         <Text style={styles.meta}>
-          Assigned to: {assignee || 'Unassigned'}
+          Assigned to: {task.assigned_name || 'Unassigned'}
         </Text>
 
         <Text style={styles.meta}>
@@ -168,10 +200,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  emptyText: {
-    color: COLORS.muted,
-    fontSize: 16,
   },
   card: {
     backgroundColor: COLORS.surface,

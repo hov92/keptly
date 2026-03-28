@@ -1,10 +1,5 @@
 import { useCallback, useState } from 'react';
-import {
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-} from 'react-native';
+import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
 import { AppScreen } from '../../components/app-screen';
@@ -33,13 +28,8 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      getMyHouseholds()
-        .then(setHouseholds)
-        .catch(console.error);
-
-      getActiveHouseholdPermissions()
-        .then(setPermissions)
-        .catch(console.error);
+      getMyHouseholds().then(setHouseholds).catch(console.error);
+      getActiveHouseholdPermissions().then(setPermissions).catch(console.error);
     }, [])
   );
 
@@ -69,15 +59,13 @@ export default function ProfileScreen() {
             ? `${activeHousehold.name}${activeHousehold.home_type ? ` • ${activeHousehold.home_type}` : ''}`
             : 'No active household selected'}
         </Text>
-        <Text style={styles.roleText}>
-          Role: {permissions.role ?? 'unknown'}
-        </Text>
+        <Text style={styles.roleText}>Role: {permissions.role ?? 'unknown'}</Text>
       </Pressable>
 
       {permissions.canSwitchHouseholds ? (
         <Pressable
           style={styles.cardButton}
-          onPress={() => router.push('/household/switch')}
+          onPress={() => router.push('/household/switch' as any)}
         >
           <Text style={styles.cardTitle}>Switch household</Text>
           <Text style={styles.cardText}>
@@ -118,14 +106,7 @@ export default function ProfileScreen() {
             </Text>
           </Pressable>
         </>
-      ) : (
-        <Pressable style={styles.cardButton}>
-          <Text style={styles.cardTitle}>Household access</Text>
-          <Text style={styles.cardText}>
-            Your role allows viewing the household, but not inviting or switching.
-          </Text>
-        </Pressable>
-      )}
+      ) : null}
 
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Log out</Text>

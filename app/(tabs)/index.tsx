@@ -21,6 +21,8 @@ type Task = {
   due_date: string | null;
   is_completed: boolean;
   created_at: string;
+  assigned_to: string | null;
+  assigned_name?: string | null;
 };
 
 type Household = {
@@ -29,14 +31,27 @@ type Household = {
   home_type: string | null;
 };
 
+type SharedMemberName = {
+  id: string;
+  full_name: string | null;
+};
+
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [household, setHousehold] = useState<Household | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const loadDashboard = async () => {
     try {
       setLoading(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const userId = session?.user?.id ?? null;
+      setCurrentUserId(userId);
 
       const householdId = await getCurrentHouseholdId();
 
@@ -59,7 +74,9 @@ export default function HomeScreen() {
 
       const { data: tasksData, error: tasksError } = await supabase
         .from('tasks')
-        .select('id, title, category, due_date, is_completed, created_at')
+        .select(
+          'id, title, category, due_date, is_completed, created_at, assigned_to'
+        )
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
 
@@ -68,8 +85,33 @@ export default function HomeScreen() {
         return;
       }
 
+      const taskRows = (tasksData ?? []) as Task[];
+
+      const { data: namesData, error: namesError } = await supabase.rpc(
+        'get_shared_household_member_names'
+      );
+
+      if (namesError) {
+        console.error(namesError.message);
+        return;
+      }
+
+      const nameMap = new Map(
+        ((namesData ?? []) as SharedMemberName[]).map((row) => [
+          row.id,
+          row.full_name,
+        ])
+      );
+
       setHousehold(householdData as Household);
-      setTasks((tasksData ?? []) as Task[]);
+      setTasks(
+        taskRows.map((task) => ({
+          ...task,
+          assigned_name: task.assigned_to
+            ? (nameMap.get(task.assigned_to) ?? null)
+            : null,
+        }))
+      );
     } catch (error) {
       console.error(error);
     } finally {
@@ -101,8 +143,75 @@ export default function HomeScreen() {
 
   const recentTasks = tasks.slice(0, 4);
 
+  const assignedToMe = currentUserId
+    ? tasks.filter((task) => task.assigned_to === currentUserId && !task.is_completed)
+    : [];
+
+  const assignedToMePreview = assignedToMe.slice(0, 3);
+
   function isOverdue(task: Task) {
     return !task.is_completed && !!task.due_date && task.due_date < today;
+  }
+
+  function renderTaskCard(task: Task) {
+    const overdue = isOverdue(task);
+
+    return (
+      <View
+        key={task.id}
+        style={[styles.taskCard, overdue && styles.taskCardOverdue]}
+      >
+        <View style={styles.taskTopRow}>
+          <Text
+            style={[
+              styles.taskTitle,
+              task.is_completed && styles.taskTitleCompleted,
+              overdue && styles.taskTitleOverdue,
+            ]}
+          >
+            {task.title}
+          </Text>
+
+          <View
+            style={[
+              styles.statusBadge,
+              task.is_completed
+                ? styles.statusBadgeDone
+                : overdue
+                ? styles.statusBadgeOverdue
+                : styles.statusBadgeOpen,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusBadgeText,
+                task.is_completed
+                  ? styles.statusBadgeTextDone
+                  : overdue
+                  ? styles.statusBadgeTextOverdue
+                  : styles.statusBadgeTextOpen,
+              ]}
+            >
+              {task.is_completed ? 'Done' : overdue ? 'Overdue' : 'Open'}
+            </Text>
+          </View>
+        </View>
+
+        {!!task.category && (
+          <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
+            Category: {task.category}
+          </Text>
+        )}
+
+        <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
+          {task.due_date ? `Due: ${task.due_date}` : 'No due date'}
+        </Text>
+
+        <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
+          Assigned to: {task.assigned_name || 'Unassigned'}
+        </Text>
+      </View>
+    );
   }
 
   if (loading) {
@@ -223,6 +332,31 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Assigned to me</Text>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/tasks',
+                params: { filter: 'assigned' },
+              })
+            }
+          >
+            <Text style={styles.sectionLink}>See all</Text>
+          </Pressable>
+        </View>
+
+        {assignedToMePreview.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Nothing assigned to you</Text>
+            <Text style={styles.emptyText}>
+              Tasks assigned to you will show up here.
+            </Text>
+          </View>
+        ) : (
+          assignedToMePreview.map(renderTaskCard)
+        )}
+
+        <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent tasks</Text>
           <Pressable onPress={() => router.push('/(tabs)/tasks')}>
             <Text style={styles.sectionLink}>See all</Text>
@@ -244,62 +378,7 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         ) : (
-          recentTasks.map((task) => {
-            const overdue = isOverdue(task);
-
-            return (
-              <View
-                key={task.id}
-                style={[styles.taskCard, overdue && styles.taskCardOverdue]}
-              >
-                <View style={styles.taskTopRow}>
-                  <Text
-                    style={[
-                      styles.taskTitle,
-                      task.is_completed && styles.taskTitleCompleted,
-                      overdue && styles.taskTitleOverdue,
-                    ]}
-                  >
-                    {task.title}
-                  </Text>
-
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      task.is_completed
-                        ? styles.statusBadgeDone
-                        : overdue
-                        ? styles.statusBadgeOverdue
-                        : styles.statusBadgeOpen,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusBadgeText,
-                        task.is_completed
-                          ? styles.statusBadgeTextDone
-                          : overdue
-                          ? styles.statusBadgeTextOverdue
-                          : styles.statusBadgeTextOpen,
-                      ]}
-                    >
-                      {task.is_completed ? 'Done' : overdue ? 'Overdue' : 'Open'}
-                    </Text>
-                  </View>
-                </View>
-
-                {!!task.category && (
-                  <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
-                    Category: {task.category}
-                  </Text>
-                )}
-
-                <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
-                  {task.due_date ? `Due: ${task.due_date}` : 'No due date'}
-                </Text>
-              </View>
-            );
-          })
+          recentTasks.map(renderTaskCard)
         )}
       </ScrollView>
     </Screen>
@@ -446,6 +525,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+    marginTop: 4,
   },
   sectionTitle: {
     fontSize: 20,
@@ -462,6 +542,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 18,
     alignItems: 'flex-start',
+    marginBottom: 12,
   },
   emptyTitle: {
     fontSize: 20,

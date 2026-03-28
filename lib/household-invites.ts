@@ -136,7 +136,6 @@ export async function acceptHouseholdInvite(params: {
       },
       {
         onConflict: 'household_id,user_id',
-        ignoreDuplicates: true,
       }
     );
 

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import { supabase } from '../../lib/supabase';
@@ -26,13 +26,39 @@ type Task = {
   assigned_name?: string | null;
 };
 
+type TaskFilter = 'all' | 'assigned';
+
+type SharedMemberName = {
+  id: string;
+  full_name: string | null;
+};
+
 export default function TasksScreen() {
+  const params = useLocalSearchParams<{ filter?: string }>();
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<TaskFilter>('all');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (params.filter === 'assigned') {
+      setActiveFilter('assigned');
+    } else {
+      setActiveFilter('all');
+    }
+  }, [params.filter]);
 
   async function loadTasks() {
     try {
       setLoading(true);
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const userId = session?.user?.id ?? null;
+      setCurrentUserId(userId);
 
       const householdId = await getCurrentHouseholdId();
 
@@ -55,30 +81,21 @@ export default function TasksScreen() {
 
       const taskRows = (data ?? []) as Task[];
 
-      const assignedIds = Array.from(
-        new Set(taskRows.map((task) => task.assigned_to).filter(Boolean))
-      ) as string[];
+      const { data: namesData, error: namesError } = await supabase.rpc(
+        'get_shared_household_member_names'
+      );
 
-      let nameMap = new Map<string, string | null>();
-
-      if (assignedIds.length > 0) {
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', assignedIds);
-
-        if (profilesError) {
-          Alert.alert('Load failed', profilesError.message);
-          return;
-        }
-
-        nameMap = new Map(
-          (profilesData ?? []).map((profile) => [
-            profile.id as string,
-            profile.full_name as string | null,
-          ])
-        );
+      if (namesError) {
+        Alert.alert('Load failed', namesError.message);
+        return;
       }
+
+      const nameMap = new Map(
+        ((namesData ?? []) as SharedMemberName[]).map((row) => [
+          row.id,
+          row.full_name,
+        ])
+      );
 
       setTasks(
         taskRows.map((task) => ({
@@ -114,6 +131,11 @@ export default function TasksScreen() {
 
     loadTasks();
   }
+
+  const visibleTasks =
+    activeFilter === 'assigned' && currentUserId
+      ? tasks.filter((task) => task.assigned_to === currentUserId)
+      : tasks;
 
   function renderItem({ item }: { item: Task }) {
     return (
@@ -188,14 +210,54 @@ export default function TasksScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.filterRow}>
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === 'all' && styles.filterChipActive,
+          ]}
+          onPress={() => setActiveFilter('all')}
+        >
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === 'all' && styles.filterChipTextActive,
+            ]}
+          >
+            All
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === 'assigned' && styles.filterChipActive,
+          ]}
+          onPress={() => setActiveFilter('assigned')}
+        >
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === 'assigned' && styles.filterChipTextActive,
+            ]}
+          >
+            Assigned to me
+          </Text>
+        </Pressable>
+      </View>
+
       <FlatList
-        data={tasks}
+        data={visibleTasks}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         scrollEnabled={false}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No tasks yet.</Text>
+            <Text style={styles.emptyText}>
+              {activeFilter === 'assigned'
+                ? 'No tasks assigned to you.'
+                : 'No tasks yet.'}
+            </Text>
           </View>
         }
       />
@@ -235,6 +297,31 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: COLORS.primaryText,
     fontWeight: '700',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  filterChip: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  filterChipText: {
+    color: COLORS.text,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  filterChipTextActive: {
+    color: COLORS.primaryText,
   },
   card: {
     backgroundColor: COLORS.surface,
