@@ -25,6 +25,7 @@ import { DateField } from '../../../components/date-field';
 import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../../lib/permissions';
+import { ensureRecurringTaskHorizon } from '../../../lib/task-recurrence';
 
 type AssigneeOption = {
   label: string;
@@ -41,6 +42,21 @@ const RECURRENCE_OPTIONS = [
 
 type RecurrenceValue = (typeof RECURRENCE_OPTIONS)[number];
 
+type SavedTask = {
+  id: string;
+  household_id: string;
+  title: string;
+  category: string | null;
+  due_date: string | null;
+  is_completed: boolean;
+  assigned_to: string | null;
+  created_by: string | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  recurrence_days: WeekdayCode[] | null;
+  recurrence_interval: number | null;
+  parent_task_id: string | null;
+};
+
 export default function EditTaskScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
@@ -54,6 +70,7 @@ export default function EditTaskScreen() {
   const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [recurrence, setRecurrence] = useState<RecurrenceValue>('None');
+  const [recurrenceInterval, setRecurrenceInterval] = useState('1');
   const [recurrenceDays, setRecurrenceDays] = useState<WeekdayCode[]>([
     'mon',
     'tue',
@@ -67,6 +84,8 @@ export default function EditTaskScreen() {
 
   const isOther = category === 'Other';
   const isWeekdays = recurrence === 'weekdays';
+  const showInterval =
+    recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly';
 
   useEffect(() => {
     async function loadData() {
@@ -91,7 +110,7 @@ export default function EditTaskScreen() {
         const { data, error } = await supabase
           .from('tasks')
           .select(
-            'title, category, due_date, assigned_to, recurrence, recurrence_days'
+            'title, category, due_date, assigned_to, recurrence, recurrence_days, recurrence_interval'
           )
           .eq('id', id)
           .single();
@@ -116,6 +135,7 @@ export default function EditTaskScreen() {
         setDueDate(data.due_date ?? null);
         setAssignedTo(data.assigned_to ?? '');
         setRecurrence((data.recurrence ?? 'None') as RecurrenceValue);
+        setRecurrenceInterval(String(data.recurrence_interval ?? 1));
 
         const loadedDays = Array.isArray(data.recurrence_days)
           ? (data.recurrence_days as WeekdayCode[])
@@ -156,6 +176,10 @@ export default function EditTaskScreen() {
       return;
     }
 
+    const parsedInterval = Number.parseInt(recurrenceInterval.trim(), 10);
+    const finalInterval =
+      Number.isNaN(parsedInterval) || parsedInterval < 1 ? 1 : parsedInterval;
+
     try {
       setSaving(true);
 
@@ -175,6 +199,8 @@ export default function EditTaskScreen() {
           assigned_to: assignedTo || null,
           recurrence: recurrence === 'None' ? null : recurrence,
           recurrence_days: isWeekdays ? recurrenceDays : null,
+          recurrence_interval:
+            recurrence === 'None' || isWeekdays ? 1 : finalInterval,
         })
         .eq('id', id);
 
@@ -183,12 +209,30 @@ export default function EditTaskScreen() {
         return;
       }
 
+      const { data: savedTask, error: savedTaskError } = await supabase
+        .from('tasks')
+        .select(
+          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
+        )
+        .eq('id', id)
+        .single();
+
+      if (savedTaskError) {
+        Alert.alert('Save failed', savedTaskError.message);
+        return;
+      }
+
+      if (savedTask?.recurrence) {
+        await ensureRecurringTaskHorizon(savedTask as SavedTask);
+      }
+
       if (isOther && finalCategory && userId) {
         await saveCustomTaskCategory(finalCategory, userId);
       }
 
       router.replace(`/tasks/${id}`);
-    } catch {
+    } catch (error) {
+      console.error(error);
       Alert.alert('Error', 'Something went wrong saving the task.');
     } finally {
       setSaving(false);
@@ -258,6 +302,16 @@ export default function EditTaskScreen() {
         options={[...RECURRENCE_OPTIONS]}
         placeholder="Select recurrence"
       />
+
+      {showInterval ? (
+        <FormInput
+          placeholder="Repeat interval (example: 2)"
+          value={recurrenceInterval}
+          onChangeText={setRecurrenceInterval}
+          keyboardType="number-pad"
+          returnKeyType="done"
+        />
+      ) : null}
 
       {isWeekdays ? (
         <WeekdayPicker value={recurrenceDays} onChange={setRecurrenceDays} />

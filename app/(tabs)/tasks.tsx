@@ -16,7 +16,11 @@ import { getCurrentHouseholdId } from '../../lib/household';
 import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
-import { completeTaskWithRecurrence } from '../../lib/task-recurrence';
+import {
+  completeTaskWithRecurrence,
+  formatRecurrenceLabel,
+  WeekdayCode,
+} from '../../lib/task-recurrence';
 
 type Task = {
   id: string;
@@ -27,7 +31,9 @@ type Task = {
   is_completed: boolean;
   assigned_to: string | null;
   created_by: string | null;
-  recurrence: 'daily' | 'weekly' | 'monthly' | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  recurrence_days: WeekdayCode[] | null;
+  recurrence_interval: number | null;
   parent_task_id: string | null;
   assigned_name?: string | null;
 };
@@ -85,7 +91,7 @@ export default function TasksScreen() {
       const { data, error } = await supabase
         .from('tasks')
         .select(
-          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, parent_task_id'
+          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
         )
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
@@ -243,7 +249,14 @@ export default function TasksScreen() {
         ) : null}
 
         {item.recurrence ? (
-          <Text style={styles.meta}>Repeats: {item.recurrence}</Text>
+          <Text style={styles.meta}>
+            Repeats:{' '}
+            {formatRecurrenceLabel({
+              recurrence: item.recurrence,
+              recurrenceDays: item.recurrence_days,
+              recurrenceInterval: item.recurrence_interval,
+            })}
+          </Text>
         ) : null}
 
         <Text style={styles.meta}>

@@ -19,6 +19,7 @@ import { FormInput } from '../../components/form-input';
 import { DateField } from '../../components/date-field';
 import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../constants/theme';
+import { ensureRecurringTaskHorizon } from '../../lib/task-recurrence';
 
 type AssigneeOption = {
   label: string;
@@ -35,6 +36,21 @@ const RECURRENCE_OPTIONS = [
 
 type RecurrenceValue = (typeof RECURRENCE_OPTIONS)[number];
 
+type InsertedTask = {
+  id: string;
+  household_id: string;
+  title: string;
+  category: string | null;
+  due_date: string | null;
+  is_completed: boolean;
+  assigned_to: string | null;
+  created_by: string | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  recurrence_days: WeekdayCode[] | null;
+  recurrence_interval: number | null;
+  parent_task_id: string | null;
+};
+
 export default function NewTaskScreen() {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
@@ -46,6 +62,7 @@ export default function NewTaskScreen() {
   const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [recurrence, setRecurrence] = useState<RecurrenceValue>('None');
+  const [recurrenceInterval, setRecurrenceInterval] = useState('1');
   const [recurrenceDays, setRecurrenceDays] = useState<WeekdayCode[]>([
     'mon',
     'tue',
@@ -57,6 +74,8 @@ export default function NewTaskScreen() {
 
   const isOther = category === 'Other';
   const isWeekdays = recurrence === 'weekdays';
+  const showInterval =
+    recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly';
 
   useEffect(() => {
     getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
@@ -78,6 +97,10 @@ export default function NewTaskScreen() {
       Alert.alert('Missing info', 'Select at least one weekday.');
       return;
     }
+
+    const parsedInterval = Number.parseInt(recurrenceInterval.trim(), 10);
+    const finalInterval =
+      Number.isNaN(parsedInterval) || parsedInterval < 1 ? 1 : parsedInterval;
 
     try {
       setLoading(true);
@@ -103,7 +126,7 @@ export default function NewTaskScreen() {
 
       const finalCategory = isOther ? customCategory.trim() : category || null;
 
-      const { error } = await supabase.from('tasks').insert({
+      const taskPayload = {
         household_id: householdId,
         title: title.trim(),
         category: finalCategory,
@@ -112,11 +135,25 @@ export default function NewTaskScreen() {
         created_by: user.id,
         recurrence: recurrence === 'None' ? null : recurrence,
         recurrence_days: isWeekdays ? recurrenceDays : null,
-      });
+        recurrence_interval:
+          recurrence === 'None' || isWeekdays ? 1 : finalInterval,
+      };
+
+      const { data: insertedTask, error } = await supabase
+        .from('tasks')
+        .insert(taskPayload)
+        .select(
+          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
+        )
+        .single();
 
       if (error) {
         Alert.alert('Create failed', error.message);
         return;
+      }
+
+      if (insertedTask?.recurrence) {
+        await ensureRecurringTaskHorizon(insertedTask as InsertedTask);
       }
 
       if (isOther && finalCategory) {
@@ -124,7 +161,8 @@ export default function NewTaskScreen() {
       }
 
       router.back();
-    } catch {
+    } catch (error) {
+      console.error(error);
       Alert.alert('Error', 'Something went wrong creating the task.');
     } finally {
       setLoading(false);
@@ -182,6 +220,16 @@ export default function NewTaskScreen() {
         options={[...RECURRENCE_OPTIONS]}
         placeholder="Select recurrence"
       />
+
+      {showInterval ? (
+        <FormInput
+          placeholder="Repeat interval (example: 2)"
+          value={recurrenceInterval}
+          onChangeText={setRecurrenceInterval}
+          keyboardType="number-pad"
+          returnKeyType="done"
+        />
+      ) : null}
 
       {isWeekdays ? (
         <WeekdayPicker value={recurrenceDays} onChange={setRecurrenceDays} />

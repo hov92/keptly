@@ -13,6 +13,10 @@ import { Screen } from '../../components/screen';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
+import {
+  formatRecurrenceLabel,
+  WeekdayCode,
+} from '../../lib/task-recurrence';
 
 type Task = {
   id: string;
@@ -22,7 +26,9 @@ type Task = {
   is_completed: boolean;
   created_at: string;
   assigned_to: string | null;
-  recurrence: 'daily' | 'weekly' | 'monthly' | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  recurrence_days: WeekdayCode[] | null;
+  recurrence_interval: number | null;
   assigned_name?: string | null;
 };
 
@@ -80,7 +86,7 @@ export default function HomeScreen() {
       const { data: tasksData, error: tasksError } = await supabase
         .from('tasks')
         .select(
-          'id, title, category, due_date, is_completed, created_at, assigned_to, recurrence'
+          'id, title, category, due_date, is_completed, created_at, assigned_to, recurrence, recurrence_days, recurrence_interval'
         )
         .eq('household_id', householdId)
         .order('created_at', { ascending: false });
@@ -216,7 +222,12 @@ export default function HomeScreen() {
 
         {task.recurrence ? (
           <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
-            Repeats: {task.recurrence}
+            Repeats:{' '}
+            {formatRecurrenceLabel({
+              recurrence: task.recurrence,
+              recurrenceDays: task.recurrence_days,
+              recurrenceInterval: task.recurrence_interval,
+            })}
           </Text>
         ) : null}
 
@@ -470,30 +481,31 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   heroButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  primaryButton: {
-    backgroundColor: '#264653',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  flexDirection: 'row',
+  gap: 10,
+  marginTop: 4,
+},
+primaryButton: {
+  flex: 1,
+  backgroundColor: '#264653',
+  borderRadius: 12,
+  paddingVertical: 14,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
   },
   secondaryButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  flex: 1,
+  backgroundColor: '#FFFFFF',
+  borderRadius: 12,
+  paddingVertical: 14,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   secondaryButtonText: {
     color: '#264653',
     fontSize: 15,

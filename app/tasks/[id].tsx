@@ -14,7 +14,11 @@ import { AppScreen } from '../../components/app-screen';
 import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
-import { completeTaskWithRecurrence } from '../../lib/task-recurrence';
+import {
+  completeTaskWithRecurrence,
+  formatRecurrenceLabel,
+  WeekdayCode,
+} from '../../lib/task-recurrence';
 
 type TaskDetail = {
   id: string;
@@ -25,7 +29,9 @@ type TaskDetail = {
   is_completed: boolean;
   assigned_to: string | null;
   created_by: string | null;
-  recurrence: 'daily' | 'weekly' | 'monthly' | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  recurrence_days: WeekdayCode[] | null;
+  recurrence_interval: number | null;
   parent_task_id: string | null;
   assigned_name?: string | null;
 };
@@ -58,7 +64,7 @@ export default function TaskDetailScreen() {
         const { data, error } = await supabase
           .from('tasks')
           .select(
-            'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, parent_task_id'
+            'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
           )
           .eq('id', id)
           .single();
@@ -248,7 +254,12 @@ export default function TaskDetailScreen() {
         </Text>
 
         <Text style={styles.meta}>
-          Repeats: {task.recurrence ? task.recurrence : 'Does not repeat'}
+          Repeats:{' '}
+          {formatRecurrenceLabel({
+            recurrence: task.recurrence,
+            recurrenceDays: task.recurrence_days,
+            recurrenceInterval: task.recurrence_interval,
+          })}
         </Text>
       </View>
 
