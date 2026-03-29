@@ -1,10 +1,22 @@
-import { router } from 'expo-router';
-import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+import { router, type Href } from 'expo-router';
 
-export function smartBack(
-  navigation: NavigationProp<ParamListBase>,
-  fallback = '/(tabs)'
-) {
+type BackCapableNavigation = {
+  canGoBack: () => boolean;
+  goBack: () => void;
+};
+
+export function smartBack(params: {
+  navigation: BackCapableNavigation;
+  returnTo?: string | null;
+  fallback?: Href;
+}) {
+  const { navigation, returnTo, fallback = '/tasks' } = params;
+
+  if (returnTo) {
+    router.replace(returnTo as Href);
+    return;
+  }
+
   if (navigation.canGoBack()) {
     navigation.goBack();
     return;

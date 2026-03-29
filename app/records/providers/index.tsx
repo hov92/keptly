@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -14,7 +13,6 @@ import { AppScreen } from '../../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../../constants/theme';
 import { supabase } from '../../../lib/supabase';
 import { getCurrentHouseholdId } from '../../../lib/household';
-import { getNoHouseholdRoute } from '../../../lib/no-household-route';
 import { getActiveHouseholdPermissions } from '../../../lib/permissions';
 
 type Provider = {
@@ -23,37 +21,34 @@ type Provider = {
   category: string | null;
   phone: string | null;
   email: string | null;
-  is_preferred: boolean | null;
 };
 
 export default function ProvidersScreen() {
-  const [loading, setLoading] = useState(true);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(true);
   const [canManageProviders, setCanManageProviders] = useState(false);
 
   async function loadProviders() {
     try {
       setLoading(true);
 
-      const householdId = await getCurrentHouseholdId();
-
-      if (!householdId || householdId === 'null' || householdId === 'undefined') {
-        const route = await getNoHouseholdRoute();
-        router.replace(route);
-        return;
-      }
-
       const permissions = await getActiveHouseholdPermissions();
       setCanManageProviders(permissions.canManageProviders);
 
+      const householdId = await getCurrentHouseholdId();
+      if (!householdId) {
+        setProviders([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('providers')
-        .select('id, name, category, phone, email, is_preferred')
+        .select('id, name, category, phone, email')
         .eq('household_id', householdId)
         .order('name', { ascending: true });
 
       if (error) {
-        Alert.alert('Load failed', error.message);
+        console.error(error.message);
         return;
       }
 
@@ -75,20 +70,20 @@ export default function ProvidersScreen() {
     return (
       <Pressable
         style={styles.card}
-        onPress={() => router.push(`/records/providers/${item.id}`)}
+        onPress={() =>
+          router.push({
+  pathname: '/records/providers/[id]',
+  params: {
+    id: item.id,
+    returnTo: '/records/providers',
+  },
+})
+        }
       >
-        <View style={styles.topRow}>
-          <Text style={styles.cardTitle}>{item.name}</Text>
-          {item.is_preferred ? (
-            <View style={styles.preferredBadge}>
-              <Text style={styles.preferredBadgeText}>Preferred</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <Text style={styles.cardText}>Category: {item.category || 'None'}</Text>
-        {item.phone ? <Text style={styles.cardText}>Phone: {item.phone}</Text> : null}
-        {item.email ? <Text style={styles.cardText}>Email: {item.email}</Text> : null}
+        <Text style={styles.cardTitle}>{item.name}</Text>
+        {item.category ? <Text style={styles.cardMeta}>Category: {item.category}</Text> : null}
+        {item.phone ? <Text style={styles.cardMeta}>Phone: {item.phone}</Text> : null}
+        {item.email ? <Text style={styles.cardMeta}>Email: {item.email}</Text> : null}
       </Pressable>
     );
   }
@@ -106,7 +101,9 @@ export default function ProvidersScreen() {
       <View style={styles.headerRow}>
         <View>
           <Text style={styles.title}>Providers</Text>
-          <Text style={styles.subtitle}>Trusted pros saved for this household.</Text>
+          <Text style={styles.subtitle}>
+            Trusted pros saved for this household.
+          </Text>
         </View>
 
         {canManageProviders ? (
@@ -125,8 +122,8 @@ export default function ProvidersScreen() {
         renderItem={renderItem}
         scrollEnabled={false}
         ListEmptyComponent={
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No providers yet.</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardMeta}>No providers saved yet.</Text>
           </View>
         }
       />
@@ -173,42 +170,15 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     marginBottom: SPACING.sm,
   },
-  topRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
-    alignItems: 'center',
-    marginBottom: 8,
-  },
   cardTitle: {
-    flex: 1,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: COLORS.text,
+    marginBottom: 8,
   },
-  cardText: {
+  cardMeta: {
     fontSize: 14,
     color: COLORS.muted,
     marginBottom: 4,
-  },
-  preferredBadge: {
-    backgroundColor: COLORS.accentSoft,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  preferredBadgeText: {
-    color: COLORS.accent,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-  },
-  emptyText: {
-    color: COLORS.muted,
-    fontSize: 15,
   },
 });

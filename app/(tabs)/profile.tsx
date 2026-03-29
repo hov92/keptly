@@ -69,7 +69,12 @@ export default function ProfileScreen() {
       {permissions.canEditHousehold ? (
         <Pressable
           style={styles.cardButton}
-          onPress={() => router.push('/household/edit')}
+          onPress={() =>
+            router.push({
+              pathname: '/household/edit',
+              params: { returnTo: '/profile' },
+            })
+          }
         >
           <Text style={styles.cardTitle}>Edit household</Text>
           <Text style={styles.cardText}>
@@ -81,7 +86,12 @@ export default function ProfileScreen() {
       {permissions.canSwitchHouseholds ? (
         <Pressable
           style={styles.cardButton}
-          onPress={() => router.push('/household/switch' as any)}
+          onPress={() =>
+            router.push({
+              pathname: '/household/switch',
+              params: { returnTo: '/profile' },
+            })
+          }
         >
           <Text style={styles.cardTitle}>Switch household</Text>
           <Text style={styles.cardText}>
@@ -92,7 +102,12 @@ export default function ProfileScreen() {
 
       <Pressable
         style={styles.cardButton}
-        onPress={() => router.push('/household/members')}
+        onPress={() =>
+          router.push({
+            pathname: '/household/members',
+            params: { returnTo: '/profile' },
+          })
+        }
       >
         <Text style={styles.cardTitle}>Household members</Text>
         <Text style={styles.cardText}>
@@ -104,7 +119,12 @@ export default function ProfileScreen() {
         <>
           <Pressable
             style={styles.cardButton}
-            onPress={() => router.push('/household/invites')}
+            onPress={() =>
+              router.push({
+                pathname: '/household/invites',
+                params: { returnTo: '/profile' },
+              })
+            }
           >
             <Text style={styles.cardTitle}>Household invites</Text>
             <Text style={styles.cardText}>
@@ -114,7 +134,12 @@ export default function ProfileScreen() {
 
           <Pressable
             style={styles.cardButton}
-            onPress={() => router.push('/household/invite')}
+            onPress={() =>
+              router.push({
+                pathname: '/household/invite',
+                params: { returnTo: '/profile' },
+              })
+            }
           >
             <Text style={styles.cardTitle}>Invite a member</Text>
             <Text style={styles.cardText}>
@@ -126,7 +151,12 @@ export default function ProfileScreen() {
 
       <Pressable
         style={styles.cardButton}
-        onPress={() => router.push('/household/activity')}
+        onPress={() =>
+          router.push({
+            pathname: '/household/activity',
+            params: { returnTo: '/profile' },
+          })
+        }
       >
         <Text style={styles.cardTitle}>Household activity</Text>
         <Text style={styles.cardText}>

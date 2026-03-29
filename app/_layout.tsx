@@ -1,4 +1,4 @@
-import { Stack, router } from 'expo-router';
+import { Stack, router, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
@@ -8,6 +8,13 @@ import {
   ensureNotificationPermissions,
 } from '../lib/notifications';
 import { supabase } from '../lib/supabase';
+
+function getRouteFallback(routeName: string): Href {
+  if (routeName.startsWith('household/')) return '/profile';
+  if (routeName.startsWith('tasks/')) return '/tasks';
+  if (routeName.startsWith('records/')) return '/records';
+  return '/profile';
+}
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
@@ -62,37 +69,59 @@ export default function RootLayout() {
 
   return (
     <Stack
-      screenOptions={({ navigation }) => ({
-        headerTintColor: '#264653',
-        headerShadowVisible: false,
-        headerStyle: {
-          backgroundColor: '#F8F6F2',
-        },
-        headerTitleStyle: {
-          color: '#1F1F1F',
-          fontWeight: '700',
-        },
-        contentStyle: {
-          backgroundColor: '#F8F6F2',
-        },
-        headerLeft: () =>
-          navigation.canGoBack() ? (
-            <Pressable
-              onPress={() => navigation.goBack()}
-              style={{ paddingRight: 8, paddingVertical: 4 }}
-            >
-              <Text
-                style={{
-                  color: '#264653',
-                  fontSize: 16,
-                  fontWeight: '600',
-                }}
-              >
-                Back
-              </Text>
-            </Pressable>
-          ) : null,
-      })}
+      screenOptions={({ navigation, route }) => {
+        const isTabsScreen = route.name === '(tabs)';
+
+        const returnTo =
+          typeof route.params === 'object' &&
+          route.params &&
+          'returnTo' in route.params &&
+          typeof route.params.returnTo === 'string'
+            ? (route.params.returnTo as Href)
+            : null;
+
+        const fallback = getRouteFallback(route.name);
+
+        return {
+          headerTintColor: '#264653',
+          headerShadowVisible: false,
+          headerStyle: {
+            backgroundColor: '#F8F6F2',
+          },
+          headerTitleStyle: {
+            color: '#1F1F1F',
+            fontWeight: '700',
+          },
+          contentStyle: {
+            backgroundColor: '#F8F6F2',
+          },
+          headerLeft: isTabsScreen
+            ? undefined
+            : () => (
+                <Pressable
+                  onPress={() => {
+                    if (returnTo) {
+                      router.replace(returnTo);
+                      return;
+                    }
+
+                    router.replace(fallback);
+                  }}
+                  style={{ paddingRight: 8, paddingVertical: 4 }}
+                >
+                  <Text
+                    style={{
+                      color: '#264653',
+                      fontSize: 16,
+                      fontWeight: '600',
+                    }}
+                  >
+                    Back
+                  </Text>
+                </Pressable>
+              ),
+        };
+      }}
     >
       <Stack.Protected guard={!session}>
         <Stack.Screen name="login" options={{ headerShown: false }} />
@@ -115,6 +144,10 @@ export default function RootLayout() {
         <Stack.Screen name="tasks/edit/[id]" options={{ title: 'Edit task' }} />
 
         <Stack.Screen name="records/providers/new" options={{ title: 'Add provider' }} />
+        <Stack.Screen
+  name="records/providers/index"
+  options={{ title: 'Providers' }}
+/>
         <Stack.Screen
           name="records/providers/[id]/index"
           options={{ title: 'Provider details' }}

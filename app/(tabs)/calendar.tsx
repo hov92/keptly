@@ -230,7 +230,15 @@ export default function CalendarScreen() {
     return (
       <Pressable
         key={item.id}
-        onPress={() => router.push(`/tasks/${item.id}`)}
+        onPress={() =>
+          router.push({
+  pathname: '/tasks/[id]',
+  params: {
+    id: item.id,
+    returnTo: '/(tabs)/calendar',
+  },
+})
+        }
         style={[
           styles.card,
           item.is_completed && styles.cardCompleted,

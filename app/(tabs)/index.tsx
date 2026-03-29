@@ -170,8 +170,17 @@ export default function HomeScreen() {
     const overdue = isOverdue(task);
 
     return (
-      <View
+      <Pressable
         key={task.id}
+        onPress={() =>
+          router.push({
+  pathname: '/tasks/[id]',
+  params: {
+    id: task.id,
+    returnTo: '/(tabs)/tasks',
+  },
+})
+        }
         style={[styles.taskCard, overdue && styles.taskCardOverdue]}
       >
         <View style={styles.taskTopRow}>
@@ -234,7 +243,7 @@ export default function HomeScreen() {
         <Text style={[styles.taskMeta, overdue && styles.taskMetaOverdue]}>
           Assigned to: {task.assigned_name || 'Unassigned'}
         </Text>
-      </View>
+      </Pressable>
     );
   }
 
@@ -481,31 +490,31 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   heroButtons: {
-  flexDirection: 'row',
-  gap: 10,
-  marginTop: 4,
-},
-primaryButton: {
-  flex: 1,
-  backgroundColor: '#264653',
-  borderRadius: 12,
-  paddingVertical: 14,
-  alignItems: 'center',
-  justifyContent: 'center',
-},
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#264653',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
   },
   secondaryButton: {
-  flex: 1,
-  backgroundColor: '#FFFFFF',
-  borderRadius: 12,
-  paddingVertical: 14,
-  alignItems: 'center',
-  justifyContent: 'center',
-},
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   secondaryButtonText: {
     color: '#264653',
     fontSize: 15,

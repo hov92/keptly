@@ -7,7 +7,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import {
+  router,
+  useLocalSearchParams,
+  useNavigation,
+} from 'expo-router';
 
 import { supabase } from '../../lib/supabase';
 import { AppScreen } from '../../components/app-screen';
@@ -18,6 +22,7 @@ import {
   formatRecurrenceLabel,
   WeekdayCode,
 } from '../../lib/task-recurrence';
+import { smartBack } from '../../lib/navigation';
 
 type TaskDetail = {
   id: string;
@@ -41,11 +46,24 @@ type SharedMemberName = {
 };
 
 export default function TaskDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, returnTo } = useLocalSearchParams<{
+    id: string;
+    returnTo?: string;
+  }>();
+  const navigation = useNavigation();
+
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
+
+  function handleBack() {
+    smartBack({
+      navigation,
+      returnTo: returnTo ?? '/tasks',
+      fallback: '/tasks',
+    });
+  }
 
   useEffect(() => {
     async function loadTask() {
@@ -78,7 +96,7 @@ export default function TaskDetailScreen() {
 
         if (permissions.role === 'child' && taskRow.assigned_to !== userId) {
           Alert.alert('Restricted', 'You can only view tasks assigned to you.');
-          router.replace('/(tabs)/tasks');
+          router.replace('/tasks');
           return;
         }
 
@@ -139,7 +157,7 @@ export default function TaskDetailScreen() {
             return;
           }
 
-          router.replace('/(tabs)/tasks');
+          router.replace('/tasks');
         },
       },
     ]);
@@ -218,6 +236,10 @@ export default function TaskDetailScreen() {
   if (!task) {
     return (
       <AppScreen>
+        <Pressable onPress={handleBack} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Back</Text>
+        </Pressable>
+
         <View style={styles.card}>
           <Text style={styles.emptyTitle}>Could not load this task.</Text>
         </View>
@@ -227,6 +249,10 @@ export default function TaskDetailScreen() {
 
   return (
     <AppScreen>
+      <Pressable onPress={handleBack} style={styles.backButton}>
+        <Text style={styles.backButtonText}>Back</Text>
+      </Pressable>
+
       <View style={styles.card}>
         <Text style={styles.title}>{task.title}</Text>
 
@@ -266,7 +292,15 @@ export default function TaskDetailScreen() {
         <>
           <Pressable
             style={styles.secondaryButton}
-            onPress={() => router.push(`/tasks/edit/${task.id}`)}
+            onPress={() =>
+              router.push({
+                pathname: '/tasks/edit/[id]',
+                params: {
+                  id: task.id,
+                  returnTo: returnTo || '/tasks',
+                },
+              })
+            }
           >
             <Text style={styles.secondaryButtonText}>Edit Task</Text>
           </Pressable>
@@ -286,6 +320,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  backButtonText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   card: {
     backgroundColor: COLORS.surface,

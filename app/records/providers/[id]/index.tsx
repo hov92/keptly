@@ -8,12 +8,18 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import {
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+  useNavigation,
+} from 'expo-router';
 
 import { AppScreen } from '../../../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../../../constants/theme';
 import { supabase } from '../../../../lib/supabase';
 import { getActiveHouseholdPermissions } from '../../../../lib/permissions';
+import { smartBack } from '../../../../lib/navigation';
 
 type Provider = {
   id: string;
@@ -34,12 +40,24 @@ type ServiceRecord = {
 };
 
 export default function ProviderDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, returnTo } = useLocalSearchParams<{
+    id: string;
+    returnTo?: string;
+  }>();
+  const navigation = useNavigation();
 
   const [loading, setLoading] = useState(true);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [records, setRecords] = useState<ServiceRecord[]>([]);
   const [canManageServiceRecords, setCanManageServiceRecords] = useState(false);
+
+  function handleBack() {
+    smartBack({
+      navigation,
+      returnTo: returnTo ?? '/records/providers',
+    fallback: '/records/providers',
+    });
+  }
 
   async function loadData() {
     try {
@@ -56,7 +74,7 @@ export default function ProviderDetailScreen() {
 
       if (providerError) {
         Alert.alert('Load failed', providerError.message);
-        router.back();
+        handleBack();
         return;
       }
 
@@ -90,7 +108,12 @@ export default function ProviderDetailScreen() {
     return (
       <Pressable
         style={styles.recordCard}
-        onPress={() => router.push(`/records/service-records/edit/${item.id}`)}
+        onPress={() =>
+          router.push({
+            pathname: '/records/service-records/edit/[id]',
+            params: { id: item.id },
+          })
+        }
       >
         <Text style={styles.recordTitle}>{item.title}</Text>
         <Text style={styles.recordMeta}>
@@ -99,7 +122,9 @@ export default function ProviderDetailScreen() {
         <Text style={styles.recordMeta}>
           Amount: {item.amount != null ? `$${item.amount}` : 'Not set'}
         </Text>
-        {item.notes ? <Text style={styles.recordMeta}>Notes: {item.notes}</Text> : null}
+        {item.notes ? (
+          <Text style={styles.recordMeta}>Notes: {item.notes}</Text>
+        ) : null}
       </Pressable>
     );
   }
@@ -122,13 +147,23 @@ export default function ProviderDetailScreen() {
 
   return (
     <AppScreen>
+      <Pressable onPress={handleBack} style={styles.backButton}>
+        <Text style={styles.backButtonText}>Back</Text>
+      </Pressable>
+
       <View style={styles.providerCard}>
         {provider.category ? (
           <Text style={styles.providerMeta}>Category: {provider.category}</Text>
         ) : null}
-        {provider.phone ? <Text style={styles.providerMeta}>Phone: {provider.phone}</Text> : null}
-        {provider.email ? <Text style={styles.providerMeta}>Email: {provider.email}</Text> : null}
-        {provider.notes ? <Text style={styles.providerMeta}>Notes: {provider.notes}</Text> : null}
+        {provider.phone ? (
+          <Text style={styles.providerMeta}>Phone: {provider.phone}</Text>
+        ) : null}
+        {provider.email ? (
+          <Text style={styles.providerMeta}>Email: {provider.email}</Text>
+        ) : null}
+        {provider.notes ? (
+          <Text style={styles.providerMeta}>Notes: {provider.notes}</Text>
+        ) : null}
         {provider.is_preferred ? (
           <Text style={styles.preferredText}>Preferred provider</Text>
         ) : null}
@@ -140,7 +175,15 @@ export default function ProviderDetailScreen() {
         {canManageServiceRecords ? (
           <Pressable
             style={styles.addButton}
-            onPress={() => router.push(`/records/providers/${provider.id}/new-service`)}
+            onPress={() =>
+              router.push({
+                pathname: '/records/providers/[id]/new-service',
+                params: {
+                  id: provider.id,
+                  returnTo: '/records/providers',
+                },
+              })
+            }
           >
             <Text style={styles.addButtonText}>Add</Text>
           </Pressable>
@@ -168,6 +211,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  backButtonText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   providerCard: {
     backgroundColor: COLORS.surface,

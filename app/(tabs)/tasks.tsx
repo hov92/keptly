@@ -208,7 +208,15 @@ export default function TasksScreen() {
     return (
       <Pressable
         style={styles.card}
-        onPress={() => router.push(`/tasks/${item.id}`)}
+        onPress={() =>
+          router.push({
+            pathname: '/tasks/[id]',
+            params: {
+              id: item.id,
+              returnTo: '/tasks',
+            },
+          })
+        }
       >
         <View style={styles.cardTop}>
           <Text
