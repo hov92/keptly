@@ -11,7 +11,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 
 import { supabase } from '../../lib/supabase';
 import { AppScreen } from '../../components/app-screen';
-import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
 import {
@@ -219,21 +218,15 @@ export default function TaskDetailScreen() {
   if (!task) {
     return (
       <AppScreen>
-        <FormScreenHeader
-          title="Task details"
-          subtitle="Could not load this task."
-        />
+        <View style={styles.card}>
+          <Text style={styles.emptyTitle}>Could not load this task.</Text>
+        </View>
       </AppScreen>
     );
   }
 
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Task details"
-        subtitle="Review and update this household task."
-      />
-
       <View style={styles.card}>
         <Text style={styles.title}>{task.title}</Text>
 
@@ -305,6 +298,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: SPACING.sm,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
   },
   meta: {
     fontSize: 15,

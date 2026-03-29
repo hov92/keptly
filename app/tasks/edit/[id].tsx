@@ -22,10 +22,14 @@ import { getHouseholdMemberOptions } from '../../../lib/household-members';
 import { AppScreen } from '../../../components/app-screen';
 import { FormInput } from '../../../components/form-input';
 import { DateField } from '../../../components/date-field';
-import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../../lib/permissions';
 import { ensureRecurringTaskHorizon } from '../../../lib/task-recurrence';
+import {
+  cancelScheduledNotification,
+  scheduleTaskDueReminder,
+  scheduleTaskOverdueReminder,
+} from '../../../lib/notifications';
 
 type AssigneeOption = {
   label: string;
@@ -55,6 +59,8 @@ type SavedTask = {
   recurrence_days: WeekdayCode[] | null;
   recurrence_interval: number | null;
   parent_task_id: string | null;
+  due_notification_id: string | null;
+  overdue_notification_id: string | null;
 };
 
 export default function EditTaskScreen() {
@@ -85,7 +91,9 @@ export default function EditTaskScreen() {
   const isOther = category === 'Other';
   const isWeekdays = recurrence === 'weekdays';
   const showInterval =
-    recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly';
+    recurrence === 'daily' ||
+    recurrence === 'weekly' ||
+    recurrence === 'monthly';
 
   useEffect(() => {
     async function loadData() {
@@ -212,7 +220,7 @@ export default function EditTaskScreen() {
       const { data: savedTask, error: savedTaskError } = await supabase
         .from('tasks')
         .select(
-          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
+          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id, due_notification_id, overdue_notification_id'
         )
         .eq('id', id)
         .single();
@@ -222,6 +230,29 @@ export default function EditTaskScreen() {
         return;
       }
 
+      await cancelScheduledNotification(savedTask.due_notification_id);
+      await cancelScheduledNotification(savedTask.overdue_notification_id);
+
+      const dueNotificationId = await scheduleTaskDueReminder({
+        taskId: savedTask.id,
+        title: savedTask.title,
+        dueDate: savedTask.due_date,
+      });
+
+      const overdueNotificationId = await scheduleTaskOverdueReminder({
+        taskId: savedTask.id,
+        title: savedTask.title,
+        dueDate: savedTask.due_date,
+      });
+
+      await supabase
+        .from('tasks')
+        .update({
+          due_notification_id: dueNotificationId ?? null,
+          overdue_notification_id: overdueNotificationId ?? null,
+        })
+        .eq('id', savedTask.id);
+
       if (savedTask?.recurrence) {
         await ensureRecurringTaskHorizon(savedTask as SavedTask);
       }
@@ -230,7 +261,7 @@ export default function EditTaskScreen() {
         await saveCustomTaskCategory(finalCategory, userId);
       }
 
-      router.replace(`/tasks/${id}`);
+      router.back();
     } catch (error) {
       console.error(error);
       Alert.alert('Error', 'Something went wrong saving the task.');
@@ -253,11 +284,6 @@ export default function EditTaskScreen() {
 
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Edit task"
-        subtitle="Update this household task."
-      />
-
       <FormInput
         placeholder="Task title"
         value={title}

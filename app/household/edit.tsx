@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 
 import { AppScreen } from '../../components/app-screen';
 import { FormInput } from '../../components/form-input';
-import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
@@ -100,21 +99,13 @@ export default function EditHouseholdScreen() {
   if (loading) {
     return (
       <AppScreen>
-        <FormScreenHeader
-          title="Edit household"
-          subtitle="Loading household details..."
-        />
+        <Text>Loading household details...</Text>
       </AppScreen>
     );
   }
 
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Edit household"
-        subtitle="Update the household name and home type."
-      />
-
       <FormInput
         placeholder="Household name"
         value={name}

@@ -20,7 +20,6 @@ import {
 } from '../../../lib/categories';
 import { AppScreen } from '../../../components/app-screen';
 import { FormInput } from '../../../components/form-input';
-import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../../lib/permissions';
 
@@ -112,7 +111,7 @@ export default function NewProviderScreen() {
         await saveCustomProviderCategory(finalCategory, user?.id);
       }
 
-      router.replace('/records/providers');
+      router.back();
     } catch {
       Alert.alert('Error', 'Something went wrong saving the provider.');
     } finally {
@@ -126,11 +125,6 @@ export default function NewProviderScreen() {
 
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Add provider"
-        subtitle="Save a trusted pro for your home."
-      />
-
       <FormInput
         placeholder="Name"
         value={name}

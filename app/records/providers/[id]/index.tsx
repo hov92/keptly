@@ -122,10 +122,10 @@ export default function ProviderDetailScreen() {
 
   return (
     <AppScreen>
-      <Text style={styles.title}>{provider.name}</Text>
-      <Text style={styles.subtitle}>{provider.category || 'No category'}</Text>
-
       <View style={styles.providerCard}>
+        {provider.category ? (
+          <Text style={styles.providerMeta}>Category: {provider.category}</Text>
+        ) : null}
         {provider.phone ? <Text style={styles.providerMeta}>Phone: {provider.phone}</Text> : null}
         {provider.email ? <Text style={styles.providerMeta}>Email: {provider.email}</Text> : null}
         {provider.notes ? <Text style={styles.providerMeta}>Notes: {provider.notes}</Text> : null}
@@ -168,17 +168,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: COLORS.muted,
-    marginBottom: SPACING.md,
   },
   providerCard: {
     backgroundColor: COLORS.surface,

@@ -1,14 +1,8 @@
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
 import { AppScreen } from '../../components/app-screen';
-import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getHouseholdActivity } from '../../lib/household-activity';
 
@@ -67,11 +61,6 @@ export default function HouseholdActivityScreen() {
 
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Household activity"
-        subtitle="Recent household changes and member actions."
-      />
-
       {items.length === 0 ? (
         <View style={styles.card}>
           <Text style={styles.emptyText}>No recent activity.</Text>

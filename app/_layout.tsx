@@ -1,20 +1,29 @@
-import { Stack } from "expo-router";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
-import type { Session } from "@supabase/supabase-js";
+import { Stack, router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import type { Session } from '@supabase/supabase-js';
 
-import { supabase } from "../lib/supabase";
+import {
+  configureNotificationChannel,
+  ensureNotificationPermissions,
+} from '../lib/notifications';
+import { supabase } from '../lib/supabase';
 
 export default function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    configureNotificationChannel().catch(console.error);
+    ensureNotificationPermissions().catch(console.error);
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
 
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
-        console.error("Error getting session:", error.message);
+        console.error('Error getting session:', error.message);
       }
 
       if (mounted) {
@@ -41,9 +50,9 @@ export default function RootLayout() {
       <View
         style={{
           flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: "#F8F6F2",
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#F8F6F2',
         }}
       >
         <ActivityIndicator size="large" />
@@ -52,29 +61,72 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={({ navigation }) => ({
+        headerTintColor: '#264653',
+        headerShadowVisible: false,
+        headerStyle: {
+          backgroundColor: '#F8F6F2',
+        },
+        headerTitleStyle: {
+          color: '#1F1F1F',
+          fontWeight: '700',
+        },
+        contentStyle: {
+          backgroundColor: '#F8F6F2',
+        },
+        headerLeft: () =>
+          navigation.canGoBack() ? (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={{ paddingRight: 8, paddingVertical: 4 }}
+            >
+              <Text
+                style={{
+                  color: '#264653',
+                  fontSize: 16,
+                  fontWeight: '600',
+                }}
+              >
+                Back
+              </Text>
+            </Pressable>
+          ) : null,
+      })}
+    >
       <Stack.Protected guard={!session}>
-        <Stack.Screen name="login" />
-        <Stack.Screen name="signup" />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="signup" options={{ headerShown: false }} />
       </Stack.Protected>
 
       <Stack.Protected guard={!!session}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="household/create" />
-        <Stack.Screen name="tasks/new" />
-        <Stack.Screen name="tasks/[id]" />
-        <Stack.Screen name="tasks/edit/[id]" />
-        <Stack.Screen name="records/providers/index" />
-        <Stack.Screen name="records/providers/new" />
-        <Stack.Screen name="records/providers/[id]/index" />
-        <Stack.Screen name="records/providers/[id]/new-service" />
-        <Stack.Screen name="records/service-records/edit/[id]" />
-        <Stack.Screen name="household/invites" />
-        <Stack.Screen name="household/invite" />
-        <Stack.Screen name="household/members" />
-        <Stack.Screen name="household/switch" />
-        <Stack.Screen name="household/activity" />
-        <Stack.Screen name="household/edit" />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+
+        <Stack.Screen name="household/create" options={{ title: 'Create household' }} />
+        <Stack.Screen name="household/edit" options={{ title: 'Edit household' }} />
+        <Stack.Screen name="household/invite" options={{ title: 'Invite member' }} />
+        <Stack.Screen name="household/invites" options={{ title: 'Household invites' }} />
+        <Stack.Screen name="household/members" options={{ title: 'Household members' }} />
+        <Stack.Screen name="household/switch" options={{ title: 'Switch household' }} />
+        <Stack.Screen name="household/activity" options={{ title: 'Household activity' }} />
+
+        <Stack.Screen name="tasks/new" options={{ title: 'Add task' }} />
+        <Stack.Screen name="tasks/[id]" options={{ title: 'Task details' }} />
+        <Stack.Screen name="tasks/edit/[id]" options={{ title: 'Edit task' }} />
+
+        <Stack.Screen name="records/providers/new" options={{ title: 'Add provider' }} />
+        <Stack.Screen
+          name="records/providers/[id]/index"
+          options={{ title: 'Provider details' }}
+        />
+        <Stack.Screen
+          name="records/providers/[id]/new-service"
+          options={{ title: 'Add service record' }}
+        />
+        <Stack.Screen
+          name="records/service-records/edit/[id]"
+          options={{ title: 'Edit service record' }}
+        />
       </Stack.Protected>
     </Stack>
   );

@@ -17,9 +17,12 @@ import { getHouseholdMemberOptions } from '../../lib/household-members';
 import { AppScreen } from '../../components/app-screen';
 import { FormInput } from '../../components/form-input';
 import { DateField } from '../../components/date-field';
-import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../constants/theme';
 import { ensureRecurringTaskHorizon } from '../../lib/task-recurrence';
+import {
+  scheduleTaskDueReminder,
+  scheduleTaskOverdueReminder,
+} from '../../lib/notifications';
 
 type AssigneeOption = {
   label: string;
@@ -152,7 +155,29 @@ export default function NewTaskScreen() {
         return;
       }
 
-      if (insertedTask?.recurrence) {
+      const dueNotificationId = await scheduleTaskDueReminder({
+        taskId: insertedTask.id,
+        title: insertedTask.title,
+        dueDate: insertedTask.due_date,
+      });
+
+      const overdueNotificationId = await scheduleTaskOverdueReminder({
+        taskId: insertedTask.id,
+        title: insertedTask.title,
+        dueDate: insertedTask.due_date,
+      });
+
+      if (dueNotificationId || overdueNotificationId) {
+        await supabase
+          .from('tasks')
+          .update({
+            due_notification_id: dueNotificationId ?? null,
+            overdue_notification_id: overdueNotificationId ?? null,
+          })
+          .eq('id', insertedTask.id);
+      }
+
+      if (insertedTask.recurrence) {
         await ensureRecurringTaskHorizon(insertedTask as InsertedTask);
       }
 
@@ -171,11 +196,6 @@ export default function NewTaskScreen() {
 
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Add task"
-        subtitle="Create a task for your household."
-      />
-
       <FormInput
         placeholder="Task title"
         value={title}
