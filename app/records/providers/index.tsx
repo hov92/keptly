@@ -72,18 +72,24 @@ export default function ProvidersScreen() {
         style={styles.card}
         onPress={() =>
           router.push({
-  pathname: '/records/providers/[id]',
-  params: {
-    id: item.id,
-    returnTo: '/records/providers',
-  },
-})
+            pathname: '/records/providers/[id]',
+            params: {
+              id: item.id,
+              returnTo: '/records/providers',
+            },
+          })
         }
       >
         <Text style={styles.cardTitle}>{item.name}</Text>
-        {item.category ? <Text style={styles.cardMeta}>Category: {item.category}</Text> : null}
-        {item.phone ? <Text style={styles.cardMeta}>Phone: {item.phone}</Text> : null}
-        {item.email ? <Text style={styles.cardMeta}>Email: {item.email}</Text> : null}
+        {item.category ? (
+          <Text style={styles.cardMeta}>Category: {item.category}</Text>
+        ) : null}
+        {item.phone ? (
+          <Text style={styles.cardMeta}>Phone: {item.phone}</Text>
+        ) : null}
+        {item.email ? (
+          <Text style={styles.cardMeta}>Email: {item.email}</Text>
+        ) : null}
       </Pressable>
     );
   }
@@ -98,14 +104,8 @@ export default function ProvidersScreen() {
 
   return (
     <AppScreen>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.title}>Providers</Text>
-          <Text style={styles.subtitle}>
-            Trusted pros saved for this household.
-          </Text>
-        </View>
-
+      <View style={styles.actionsRow}>
+        <View style={{ flex: 1 }} />
         {canManageProviders ? (
           <Pressable
             style={styles.addButton}
@@ -121,9 +121,10 @@ export default function ProvidersScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         scrollEnabled={false}
+        contentContainerStyle={providers.length === 0 ? undefined : undefined}
         ListEmptyComponent={
-          <View style={styles.card}>
-            <Text style={styles.cardMeta}>No providers saved yet.</Text>
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No providers saved yet.</Text>
           </View>
         }
       />
@@ -138,21 +139,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerRow: {
+  actionsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    marginBottom: SPACING.lg,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: COLORS.muted,
+    marginBottom: SPACING.md,
   },
   addButton: {
     backgroundColor: COLORS.primary,
@@ -180,5 +171,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.muted,
     marginBottom: 4,
+  },
+  emptyCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  emptyText: {
+    color: COLORS.muted,
+    fontSize: 15,
   },
 });

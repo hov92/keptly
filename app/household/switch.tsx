@@ -11,7 +11,11 @@ import { router, useFocusEffect } from 'expo-router';
 
 import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
-import { getMyHouseholds, HouseholdOption, setActiveHousehold } from '../../lib/households';
+import {
+  getMyHouseholds,
+  HouseholdOption,
+  setActiveHousehold,
+} from '../../lib/households';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
 
 export default function SwitchHouseholdScreen() {
@@ -25,7 +29,7 @@ export default function SwitchHouseholdScreen() {
       const permissions = await getActiveHouseholdPermissions();
       if (!permissions.canSwitchHouseholds) {
         Alert.alert('Restricted', 'Your role cannot switch households.');
-        router.back();
+        router.replace('/profile');
         return;
       }
 
@@ -49,7 +53,7 @@ export default function SwitchHouseholdScreen() {
   async function handleSwitch(householdId: string) {
     try {
       await setActiveHousehold(householdId);
-      router.replace('/(tabs)');
+      router.replace('/profile');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not switch household.';
@@ -75,20 +79,22 @@ export default function SwitchHouseholdScreen() {
         households.map((household) => (
           <Pressable
             key={household.household_id}
-            style={[
-              styles.card,
-              household.is_active && styles.cardActive,
-            ]}
+            style={[styles.card, household.is_active && styles.cardActive]}
             onPress={() => handleSwitch(household.household_id)}
+            disabled={household.is_active}
           >
             <Text style={styles.cardTitle}>{household.name}</Text>
             <Text style={styles.cardMeta}>
               {household.home_type || 'No home type'}
             </Text>
-            <Text style={styles.cardMeta}>Role: {household.role || 'member'}</Text>
+            <Text style={styles.cardMeta}>
+              Role: {household.role || 'member'}
+            </Text>
             {household.is_active ? (
               <Text style={styles.activeText}>Current household</Text>
-            ) : null}
+            ) : (
+              <Text style={styles.switchText}>Tap to switch</Text>
+            )}
           </Pressable>
         ))
       )}
@@ -108,9 +114,10 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
     padding: SPACING.md,
     marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   cardActive: {
-    borderWidth: 1,
     borderColor: COLORS.primary,
   },
   cardTitle: {
@@ -125,9 +132,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   activeText: {
-    marginTop: 8,
+    marginTop: 10,
     color: COLORS.primary,
     fontWeight: '700',
+  },
+  switchText: {
+    marginTop: 10,
+    color: COLORS.muted,
+    fontWeight: '600',
   },
   emptyText: {
     fontSize: 15,
