@@ -47,7 +47,9 @@ export default function HouseholdMembersScreen() {
 
       const [membersData, invitesData] = await Promise.all([
         getHouseholdMembers(),
-        permissions.canInviteMembers ? getOutgoingHouseholdInvites() : Promise.resolve([]),
+        permissions.canInviteMembers
+          ? getOutgoingHouseholdInvites()
+          : Promise.resolve([]),
       ]);
 
       setMembers(membersData);
@@ -67,7 +69,10 @@ export default function HouseholdMembersScreen() {
     }, [])
   );
 
-  async function handleRoleChange(member: HouseholdMember, newRole: 'member' | 'child') {
+  async function handleRoleChange(
+    member: HouseholdMember,
+    newRole: 'member' | 'child'
+  ) {
     try {
       await updateHouseholdMemberRole({
         memberId: member.id,
@@ -115,8 +120,6 @@ export default function HouseholdMembersScreen() {
 
   return (
     <AppScreen>
-      <Text style={styles.sectionTitle}>Members</Text>
-
       {members.length === 0 ? (
         <View style={styles.card}>
           <Text style={styles.emptyText}>No members found.</Text>
@@ -130,7 +133,9 @@ export default function HouseholdMembersScreen() {
               <Text style={styles.cardTitle}>
                 {member.profiles?.full_name || 'Household member'}
               </Text>
-              <Text style={styles.cardMeta}>Role: {member.role || 'member'}</Text>
+              <Text style={styles.cardMeta}>
+                Role: {member.role || 'member'}
+              </Text>
 
               {canManageMembers && !isSelf ? (
                 <View style={styles.buttonGroup}>
@@ -139,7 +144,9 @@ export default function HouseholdMembersScreen() {
                       style={styles.secondaryButton}
                       onPress={() => handleRoleChange(member, 'member')}
                     >
-                      <Text style={styles.secondaryButtonText}>Set as member</Text>
+                      <Text style={styles.secondaryButtonText}>
+                        Set as member
+                      </Text>
                     </Pressable>
                   ) : null}
 
@@ -148,7 +155,9 @@ export default function HouseholdMembersScreen() {
                       style={styles.secondaryButton}
                       onPress={() => handleRoleChange(member, 'child')}
                     >
-                      <Text style={styles.secondaryButtonText}>Set as child</Text>
+                      <Text style={styles.secondaryButtonText}>
+                        Set as child
+                      </Text>
                     </Pressable>
                   ) : null}
 
@@ -157,7 +166,9 @@ export default function HouseholdMembersScreen() {
                       style={styles.secondaryButton}
                       onPress={() => handlePromote(member)}
                     >
-                      <Text style={styles.secondaryButtonText}>Promote to owner</Text>
+                      <Text style={styles.secondaryButtonText}>
+                        Promote to owner
+                      </Text>
                     </Pressable>
                   ) : null}
 
@@ -174,21 +185,23 @@ export default function HouseholdMembersScreen() {
         })
       )}
 
-      <Text style={styles.sectionTitle}>Pending invites</Text>
+      <View style={styles.sectionBlock}>
+        <Text style={styles.sectionLabel}>Pending invites</Text>
 
-      {invites.length === 0 ? (
-        <View style={styles.card}>
-          <Text style={styles.emptyText}>No pending invites.</Text>
-        </View>
-      ) : (
-        invites.map((invite) => (
-          <View key={invite.id} style={styles.card}>
-            <Text style={styles.cardTitle}>{invite.invited_email}</Text>
-            <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>
-            <Text style={styles.cardMeta}>Status: Pending</Text>
+        {invites.length === 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.emptyText}>No pending invites.</Text>
           </View>
-        ))
-      )}
+        ) : (
+          invites.map((invite) => (
+            <View key={invite.id} style={styles.card}>
+              <Text style={styles.cardTitle}>{invite.invited_email}</Text>
+              <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>
+              <Text style={styles.cardMeta}>Status: Pending</Text>
+            </View>
+          ))
+        )}
+      </View>
     </AppScreen>
   );
 }
@@ -200,12 +213,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionTitle: {
-    fontSize: 20,
+  sectionBlock: {
+    marginTop: SPACING.lg,
+  },
+  sectionLabel: {
+    fontSize: 16,
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: SPACING.sm,
-    marginTop: SPACING.sm,
   },
   card: {
     backgroundColor: COLORS.surface,

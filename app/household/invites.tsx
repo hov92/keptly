@@ -43,7 +43,9 @@ export default function HouseholdInvitesScreen() {
 
       const [incomingData, outgoingData] = await Promise.all([
         getIncomingHouseholdInvites(email),
-        permissions.canInviteMembers ? getOutgoingHouseholdInvites() : Promise.resolve([]),
+        permissions.canInviteMembers
+          ? getOutgoingHouseholdInvites()
+          : Promise.resolve([]),
       ]);
 
       setIncoming(incomingData);
@@ -116,43 +118,45 @@ export default function HouseholdInvitesScreen() {
 
   return (
     <AppScreen>
-      <Text style={styles.sectionTitle}>Incoming invites</Text>
+      <View style={styles.sectionBlock}>
+        <Text style={styles.sectionLabel}>Incoming invites</Text>
 
-      {incoming.length === 0 ? (
-        <View style={styles.card}>
-          <Text style={styles.emptyText}>No incoming invites.</Text>
-        </View>
-      ) : (
-        incoming.map((invite) => (
-          <View key={invite.id} style={styles.card}>
-            <Text style={styles.cardTitle}>
-              {invite.households?.[0]?.name ?? 'Household invite'}
-            </Text>
-            <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>
-            <Text style={styles.cardMeta}>Email: {invite.invited_email}</Text>
-
-            <View style={styles.actionRow}>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() => handleAccept(invite.id)}
-              >
-                <Text style={styles.primaryButtonText}>Accept</Text>
-              </Pressable>
-
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={() => handleDecline(invite.id)}
-              >
-                <Text style={styles.secondaryButtonText}>Decline</Text>
-              </Pressable>
-            </View>
+        {incoming.length === 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.emptyText}>No incoming invites.</Text>
           </View>
-        ))
-      )}
+        ) : (
+          incoming.map((invite) => (
+            <View key={invite.id} style={styles.card}>
+              <Text style={styles.cardTitle}>
+                {invite.households?.[0]?.name ?? 'Household invite'}
+              </Text>
+              <Text style={styles.cardMeta}>Role: {invite.invited_role}</Text>
+              <Text style={styles.cardMeta}>Email: {invite.invited_email}</Text>
+
+              <View style={styles.actionRow}>
+                <Pressable
+                  style={styles.primaryButton}
+                  onPress={() => handleAccept(invite.id)}
+                >
+                  <Text style={styles.primaryButtonText}>Accept</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.secondaryButtonInline}
+                  onPress={() => handleDecline(invite.id)}
+                >
+                  <Text style={styles.secondaryButtonText}>Decline</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
 
       {canManageOutgoing ? (
-        <>
-          <Text style={styles.sectionTitle}>Outgoing invites</Text>
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionLabel}>Outgoing invites</Text>
 
           {outgoing.length === 0 ? (
             <View style={styles.card}>
@@ -176,7 +180,7 @@ export default function HouseholdInvitesScreen() {
               </View>
             ))
           )}
-        </>
+        </View>
       ) : null}
     </AppScreen>
   );
@@ -189,12 +193,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionTitle: {
-    fontSize: 20,
+  sectionBlock: {
+    marginBottom: SPACING.lg,
+  },
+  sectionLabel: {
+    fontSize: 16,
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: SPACING.sm,
-    marginTop: SPACING.sm,
   },
   card: {
     backgroundColor: COLORS.surface,
@@ -233,8 +239,16 @@ const styles = StyleSheet.create({
     color: COLORS.primaryText,
     fontWeight: '700',
   },
-  secondaryButton: {
+  secondaryButtonInline: {
     flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  secondaryButton: {
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
     borderWidth: 1,

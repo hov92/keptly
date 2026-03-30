@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { getNoHouseholdRoute } from '../../../../lib/no-household-route';
 import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 
+import { getNoHouseholdRoute } from '../../../../lib/no-household-route';
 import { supabase } from '../../../../lib/supabase';
 import { getCurrentHouseholdId } from '../../../../lib/household';
 import { AppScreen } from '../../../../components/app-screen';
@@ -18,7 +18,10 @@ type InsertedServiceRecord = {
 };
 
 export default function NewServiceRecordScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, returnTo } = useLocalSearchParams<{
+    id: string;
+    returnTo?: string;
+  }>();
 
   const [title, setTitle] = useState('');
   const [serviceDate, setServiceDate] = useState<string | null>(null);
@@ -76,10 +79,12 @@ export default function NewServiceRecordScreen() {
         return;
       }
 
+      const record = insertedRecord as InsertedServiceRecord;
+
       const reminderId = await scheduleServiceReceiptReminder({
-        serviceRecordId: insertedRecord.id,
-        serviceTitle: insertedRecord.title,
-        serviceDate: insertedRecord.service_date,
+        serviceRecordId: record.id,
+        serviceTitle: record.title,
+        serviceDate: record.service_date,
       });
 
       if (reminderId) {
@@ -88,10 +93,16 @@ export default function NewServiceRecordScreen() {
           .update({
             receipt_reminder_notification_id: reminderId,
           })
-          .eq('id', insertedRecord.id);
+          .eq('id', record.id);
       }
 
-      router.back();
+      router.replace({
+        pathname: '/records/service-records/edit/[id]',
+        params: {
+          id: record.id,
+          returnTo: returnTo || '/records/providers',
+        },
+      });
     } catch (error) {
       console.error(error);
       Alert.alert('Error', 'Something went wrong saving the service record.');
