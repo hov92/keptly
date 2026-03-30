@@ -85,6 +85,7 @@ const DOCUMENT_KIND_OPTIONS = [
 ] as const;
 
 type DocumentKind = (typeof DOCUMENT_KIND_OPTIONS)[number];
+type DocumentFilterValue = 'all' | DocumentKind;
 
 function clamp(value: number, min: number, max: number) {
   'worklet';
@@ -155,9 +156,15 @@ export default function EditServiceRecordScreen() {
   const [documentPreviewUrls, setDocumentPreviewUrls] =
     useState<DocumentPreviewMap>({});
 
+  const [documentSearch, setDocumentSearch] = useState('');
+  const [documentTypeFilter, setDocumentTypeFilter] =
+    useState<DocumentFilterValue>('all');
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [updatingType, setUpdatingType] = useState(false);
 
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImages, setPreviewImages] = useState<ServiceRecordDocument[]>(
@@ -169,6 +176,15 @@ export default function EditServiceRecordScreen() {
   const [renameBaseName, setRenameBaseName] = useState('');
   const [renameExtension, setRenameExtension] = useState('');
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(
+    null
+  );
+
+  const [typeModalVisible, setTypeModalVisible] = useState(false);
+  const [editingTypeDocument, setEditingTypeDocument] =
+    useState<ServiceRecordDocument | null>(null);
+  const [selectedEditType, setSelectedEditType] =
+    useState<DocumentKind>('receipt');
 
   const previewListRef = useRef<FlatList<ServiceRecordDocument>>(null);
 
@@ -431,25 +447,34 @@ export default function EditServiceRecordScreen() {
     await loadDocuments();
   }
 
-  function openRenameModal(upload: PendingUpload) {
+  function openRenameModalForUpload(upload: PendingUpload) {
     const { base, ext } = splitFileName(upload.fileName);
     setPendingUpload(upload);
+    setEditingDocumentId(null);
+    setRenameBaseName(base);
+    setRenameExtension(ext);
+    setRenameVisible(true);
+  }
+
+  function openRenameModalForExisting(doc: ServiceRecordDocument) {
+    const { base, ext } = splitFileName(doc.file_name);
+    setPendingUpload(null);
+    setEditingDocumentId(doc.id);
     setRenameBaseName(base);
     setRenameExtension(ext);
     setRenameVisible(true);
   }
 
   function closeRenameModal() {
-    if (uploading) return;
+    if (uploading || renaming) return;
     setRenameVisible(false);
     setPendingUpload(null);
+    setEditingDocumentId(null);
     setRenameBaseName('');
     setRenameExtension('');
   }
 
   async function confirmRenameAndUpload() {
-    if (!pendingUpload) return;
-
     const trimmedBase = renameBaseName.trim();
     if (!trimmedBase) {
       Alert.alert('Missing name', 'Enter a file name.');
@@ -459,6 +484,29 @@ export default function EditServiceRecordScreen() {
     const finalFileName = `${trimmedBase}${renameExtension}`;
 
     try {
+      if (editingDocumentId) {
+        setRenaming(true);
+
+        const { error } = await supabase
+          .from('service_record_documents')
+          .update({ file_name: finalFileName })
+          .eq('id', editingDocumentId);
+
+        if (error) {
+          Alert.alert('Rename failed', error.message);
+          return;
+        }
+
+        await loadDocuments();
+        setRenameVisible(false);
+        setEditingDocumentId(null);
+        setRenameBaseName('');
+        setRenameExtension('');
+        return;
+      }
+
+      if (!pendingUpload) return;
+
       setUploading(true);
       setRenameVisible(false);
 
@@ -479,12 +527,54 @@ export default function EditServiceRecordScreen() {
       }
     } catch (error) {
       console.error(error);
-      Alert.alert('Upload failed', 'Could not save this file.');
+      Alert.alert('Save failed', 'Could not save this file name.');
     } finally {
       setUploading(false);
+      setRenaming(false);
       setPendingUpload(null);
+      setEditingDocumentId(null);
       setRenameBaseName('');
       setRenameExtension('');
+    }
+  }
+
+  function openTypeModal(doc: ServiceRecordDocument) {
+    setEditingTypeDocument(doc);
+    setSelectedEditType(doc.document_kind);
+    setTypeModalVisible(true);
+  }
+
+  function closeTypeModal() {
+    if (updatingType) return;
+    setTypeModalVisible(false);
+    setEditingTypeDocument(null);
+  }
+
+  async function handleSaveDocumentType() {
+    if (!editingTypeDocument) return;
+
+    try {
+      setUpdatingType(true);
+
+      const { error } = await supabase
+        .from('service_record_documents')
+        .update({
+          document_kind: selectedEditType,
+        })
+        .eq('id', editingTypeDocument.id);
+
+      if (error) {
+        Alert.alert('Update failed', error.message);
+        return;
+      }
+
+      await loadDocuments();
+      closeTypeModal();
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Update failed', 'Could not update document type.');
+    } finally {
+      setUpdatingType(false);
     }
   }
 
@@ -499,7 +589,7 @@ export default function EditServiceRecordScreen() {
 
       const asset = pickerResult.assets[0];
 
-      openRenameModal({
+      openRenameModalForUpload({
         source: 'file',
         uri: asset.uri,
         fileName: asset.name,
@@ -536,7 +626,7 @@ export default function EditServiceRecordScreen() {
       const extension = asset.fileName?.split('.').pop() || 'jpg';
       const fileName = asset.fileName || `photo-${Date.now()}.${extension}`;
 
-      openRenameModal({
+      openRenameModalForUpload({
         source: 'photo',
         base64: asset.base64 ?? '',
         fileName,
@@ -573,7 +663,7 @@ export default function EditServiceRecordScreen() {
       const extension = asset.fileName?.split('.').pop() || 'jpg';
       const fileName = asset.fileName || `camera-${Date.now()}.${extension}`;
 
-      openRenameModal({
+      openRenameModalForUpload({
         source: 'photo',
         base64: asset.base64 ?? '',
         fileName,
@@ -692,6 +782,19 @@ export default function EditServiceRecordScreen() {
     );
   }
 
+  const filteredDocuments = documents.filter((doc) => {
+    const matchesType =
+      documentTypeFilter === 'all' || doc.document_kind === documentTypeFilter;
+
+    const search = documentSearch.trim().toLowerCase();
+    const matchesSearch =
+      search.length === 0 ||
+      doc.file_name.toLowerCase().includes(search) ||
+      getDocumentTypeLabel(doc).toLowerCase().includes(search);
+
+    return matchesType && matchesSearch;
+  });
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -754,11 +857,58 @@ export default function EditServiceRecordScreen() {
           placeholder="Select document type"
         />
 
+        <TextInput
+          value={documentSearch}
+          onChangeText={setDocumentSearch}
+          placeholder="Search documents"
+          placeholderTextColor={COLORS.muted}
+          style={styles.searchInput}
+        />
+
+        <View style={styles.filterRow}>
+          <Pressable
+            style={[
+              styles.filterChip,
+              documentTypeFilter === 'all' && styles.filterChipActive,
+            ]}
+            onPress={() => setDocumentTypeFilter('all')}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                documentTypeFilter === 'all' && styles.filterChipTextActive,
+              ]}
+            >
+              All
+            </Text>
+          </Pressable>
+
+          {DOCUMENT_KIND_OPTIONS.map((option) => (
+            <Pressable
+              key={option}
+              style={[
+                styles.filterChip,
+                documentTypeFilter === option && styles.filterChipActive,
+              ]}
+              onPress={() => setDocumentTypeFilter(option)}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  documentTypeFilter === option && styles.filterChipTextActive,
+                ]}
+              >
+                {option.charAt(0).toUpperCase() + option.slice(1)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         <View style={styles.uploadGrid}>
           <Pressable
             style={styles.secondaryButton}
             onPress={handleTakePhoto}
-            disabled={uploading}
+            disabled={uploading || renaming || updatingType}
           >
             <Text style={styles.secondaryButtonText}>
               {uploading ? 'Working...' : 'Take Photo'}
@@ -768,7 +918,7 @@ export default function EditServiceRecordScreen() {
           <Pressable
             style={styles.secondaryButton}
             onPress={handleChoosePhoto}
-            disabled={uploading}
+            disabled={uploading || renaming || updatingType}
           >
             <Text style={styles.secondaryButtonText}>
               {uploading ? 'Working...' : 'Choose Photo'}
@@ -779,19 +929,23 @@ export default function EditServiceRecordScreen() {
         <Pressable
           style={styles.secondaryButton}
           onPress={handleUploadDocument}
-          disabled={uploading}
+          disabled={uploading || renaming || updatingType}
         >
           <Text style={styles.secondaryButtonText}>
             {uploading ? 'Uploading...' : 'Upload File'}
           </Text>
         </Pressable>
 
-        {documents.length === 0 ? (
+        {filteredDocuments.length === 0 ? (
           <View style={styles.documentCard}>
-            <Text style={styles.documentMeta}>No documents uploaded yet.</Text>
+            <Text style={styles.documentMeta}>
+              {documents.length === 0
+                ? 'No documents uploaded yet.'
+                : 'No documents match your search or filter.'}
+            </Text>
           </View>
         ) : (
-          documents.map((doc) => {
+          filteredDocuments.map((doc) => {
             const previewUrl = documentPreviewUrls[doc.id];
             const isImage = isImageDocument(doc);
 
@@ -828,6 +982,20 @@ export default function EditServiceRecordScreen() {
                   </Pressable>
 
                   <Pressable
+                    style={styles.inlineButton}
+                    onPress={() => openRenameModalForExisting(doc)}
+                  >
+                    <Text style={styles.inlineButtonText}>Edit Name</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.inlineButton}
+                    onPress={() => openTypeModal(doc)}
+                  >
+                    <Text style={styles.inlineButtonText}>Change Type</Text>
+                  </Pressable>
+
+                  <Pressable
                     style={styles.inlineDeleteButton}
                     onPress={() => handleDeleteDocument(doc)}
                   >
@@ -848,7 +1016,9 @@ export default function EditServiceRecordScreen() {
       >
         <View style={styles.renameOverlay}>
           <View style={styles.renameCard}>
-            <Text style={styles.renameTitle}>Rename file</Text>
+            <Text style={styles.renameTitle}>
+              {editingDocumentId ? 'Edit file name' : 'Rename file'}
+            </Text>
             <Text style={styles.renameHelp}>
               Choose how this file should appear in the app.
             </Text>
@@ -864,7 +1034,9 @@ export default function EditServiceRecordScreen() {
               />
               {!!renameExtension && (
                 <View style={styles.renameExtensionPill}>
-                  <Text style={styles.renameExtensionText}>{renameExtension}</Text>
+                  <Text style={styles.renameExtensionText}>
+                    {renameExtension}
+                  </Text>
                 </View>
               )}
             </View>
@@ -873,7 +1045,7 @@ export default function EditServiceRecordScreen() {
               <Pressable
                 style={styles.renameCancelButton}
                 onPress={closeRenameModal}
-                disabled={uploading}
+                disabled={uploading || renaming}
               >
                 <Text style={styles.renameCancelText}>Cancel</Text>
               </Pressable>
@@ -881,10 +1053,56 @@ export default function EditServiceRecordScreen() {
               <Pressable
                 style={styles.renameSaveButton}
                 onPress={confirmRenameAndUpload}
-                disabled={uploading}
+                disabled={uploading || renaming}
               >
                 <Text style={styles.renameSaveText}>
-                  {uploading ? 'Saving...' : 'Save File'}
+                  {uploading || renaming ? 'Saving...' : 'Save File'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={typeModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeTypeModal}
+      >
+        <View style={styles.renameOverlay}>
+          <View style={styles.renameCard}>
+            <Text style={styles.renameTitle}>Change document type</Text>
+            <Text style={styles.renameHelp}>
+              Choose how this file should be categorized.
+            </Text>
+
+            <CategoryPicker
+              label="Document type"
+              value={selectedEditType}
+              onChange={(value) =>
+                setSelectedEditType((value || 'receipt') as DocumentKind)
+              }
+              options={[...DOCUMENT_KIND_OPTIONS]}
+              placeholder="Select document type"
+            />
+
+            <View style={styles.renameActions}>
+              <Pressable
+                style={styles.renameCancelButton}
+                onPress={closeTypeModal}
+                disabled={updatingType}
+              >
+                <Text style={styles.renameCancelText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.renameSaveButton}
+                onPress={handleSaveDocumentType}
+                disabled={updatingType}
+              >
+                <Text style={styles.renameSaveText}>
+                  {updatingType ? 'Saving...' : 'Save Type'}
                 </Text>
               </Pressable>
             </View>
@@ -981,6 +1199,44 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
     lineHeight: 20,
   },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: COLORS.text,
+    backgroundColor: COLORS.background,
+    marginTop: 8,
+    marginBottom: SPACING.sm,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  filterChip: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  filterChipText: {
+    color: COLORS.text,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  filterChipTextActive: {
+    color: COLORS.primaryText,
+  },
   uploadGrid: {
     flexDirection: 'row',
     gap: SPACING.sm,
@@ -1040,11 +1296,13 @@ const styles = StyleSheet.create({
   },
   documentActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: SPACING.sm,
     marginTop: SPACING.sm,
   },
   inlineButton: {
-    flex: 1,
+    minWidth: '47%',
+    flexGrow: 1,
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
     borderWidth: 1,
@@ -1055,9 +1313,11 @@ const styles = StyleSheet.create({
   inlineButtonText: {
     color: COLORS.primary,
     fontWeight: '700',
+    fontSize: 13,
   },
   inlineDeleteButton: {
-    flex: 1,
+    minWidth: '47%',
+    flexGrow: 1,
     backgroundColor: COLORS.dangerSoft,
     borderRadius: RADIUS.md,
     paddingVertical: 10,
@@ -1066,6 +1326,7 @@ const styles = StyleSheet.create({
   inlineDeleteButtonText: {
     color: COLORS.danger,
     fontWeight: '700',
+    fontSize: 13,
   },
   renameOverlay: {
     flex: 1,
