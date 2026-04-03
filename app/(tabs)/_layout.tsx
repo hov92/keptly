@@ -93,6 +93,15 @@ export default function TabsLayout() {
           ),
         }}
       />
+
+      <Tabs.Screen
+  name="shopping"
+  options={{
+    title: 'Shopping',
+  }}
+/>
     </Tabs>
+
+    
   );
 }

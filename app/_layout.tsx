@@ -164,6 +164,8 @@ export default function RootLayout() {
   name="records/service-records/[id]"
   options={{ title: 'Service record' }}
 />
+<Stack.Screen name="shopping/new" options={{ title: 'Add item' }} />
+<Stack.Screen name="shopping/[id]" options={{ title: 'Item details' }} />
       </Stack.Protected>
     </Stack>
   );
