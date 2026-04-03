@@ -54,6 +54,7 @@ type ServiceRecordDocument = {
   file_name: string;
   file_type: string | null;
   document_kind: 'receipt' | 'invoice' | 'warranty' | 'photo' | 'other';
+  is_primary: boolean;
   created_by: string | null;
   created_at: string;
 };
@@ -165,6 +166,7 @@ export default function EditServiceRecordScreen() {
   const [uploading, setUploading] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [updatingType, setUpdatingType] = useState(false);
+  const [settingPrimaryId, setSettingPrimaryId] = useState<string | null>(null);
 
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImages, setPreviewImages] = useState<ServiceRecordDocument[]>(
@@ -236,7 +238,7 @@ export default function EditServiceRecordScreen() {
     const { data, error } = await supabase
       .from('service_record_documents')
       .select(
-        'id, service_record_id, household_id, file_path, file_name, file_type, document_kind, created_by, created_at'
+        'id, service_record_id, household_id, file_path, file_name, file_type, document_kind, is_primary, created_by, created_at'
       )
       .eq('service_record_id', id)
       .order('created_at', { ascending: false });
@@ -282,6 +284,11 @@ export default function EditServiceRecordScreen() {
     if (doc.document_kind === 'warranty') return 'Warranty';
     if (doc.document_kind === 'photo') return 'Photo';
     return 'Document';
+  }
+
+  function getPrimaryLabel(doc: ServiceRecordDocument) {
+    if (!doc.is_primary) return null;
+    return isImageDocument(doc) ? 'Cover photo' : 'Primary receipt';
   }
 
   async function handleSave() {
@@ -374,6 +381,7 @@ export default function EditServiceRecordScreen() {
         file_name: fileName,
         file_type: mimeType ?? null,
         document_kind: kind,
+        is_primary: false,
         created_by: session?.user?.id ?? null,
       });
 
@@ -436,6 +444,7 @@ export default function EditServiceRecordScreen() {
         file_name: fileName,
         file_type: mimeType ?? null,
         document_kind: kind,
+        is_primary: false,
         created_by: session?.user?.id ?? null,
       });
 
@@ -577,6 +586,39 @@ export default function EditServiceRecordScreen() {
       setUpdatingType(false);
     }
   }
+
+  async function handleSetPrimary(doc: ServiceRecordDocument) {
+  try {
+    setSettingPrimaryId(doc.id);
+
+    const { error: clearError } = await supabase
+      .from('service_record_documents')
+      .update({ is_primary: false })
+      .eq('service_record_id', id);
+
+    if (clearError) {
+      Alert.alert('Update failed', clearError.message);
+      return;
+    }
+
+    const { error: setError } = await supabase
+      .from('service_record_documents')
+      .update({ is_primary: true })
+      .eq('id', doc.id);
+
+    if (setError) {
+      Alert.alert('Update failed', setError.message);
+      return;
+    }
+
+    await loadDocuments();
+  } catch (error) {
+    console.error(error);
+    Alert.alert('Update failed', 'Could not set primary document.');
+  } finally {
+    setSettingPrimaryId(null);
+  }
+}
 
   async function handleUploadDocument() {
     try {
@@ -782,18 +824,37 @@ export default function EditServiceRecordScreen() {
     );
   }
 
-  const filteredDocuments = documents.filter((doc) => {
+  const search = documentSearch.trim().toLowerCase();
+
+  const matchesDocumentFilters = (doc: ServiceRecordDocument) => {
     const matchesType =
       documentTypeFilter === 'all' || doc.document_kind === documentTypeFilter;
 
-    const search = documentSearch.trim().toLowerCase();
     const matchesSearch =
       search.length === 0 ||
       doc.file_name.toLowerCase().includes(search) ||
       getDocumentTypeLabel(doc).toLowerCase().includes(search);
 
     return matchesType && matchesSearch;
+  };
+
+  const primaryDocument =
+    documents.find((doc) => doc.is_primary && matchesDocumentFilters(doc)) ??
+    null;
+
+  const primaryPreviewUrl =
+    primaryDocument && isImageDocument(primaryDocument)
+      ? documentPreviewUrls[primaryDocument.id]
+      : null;
+
+  const filteredDocuments = documents.filter((doc) => {
+    const matchesFilters = matchesDocumentFilters(doc);
+    const notPrimaryHeroDuplicate = !primaryDocument || doc.id !== primaryDocument.id;
+
+    return matchesFilters && notPrimaryHeroDuplicate;
   });
+
+  const hasVisibleDocuments = !!primaryDocument || filteredDocuments.length > 0;
 
   if (loading) {
     return (
@@ -908,7 +969,9 @@ export default function EditServiceRecordScreen() {
           <Pressable
             style={styles.secondaryButton}
             onPress={handleTakePhoto}
-            disabled={uploading || renaming || updatingType}
+            disabled={
+              uploading || renaming || updatingType || settingPrimaryId !== null
+            }
           >
             <Text style={styles.secondaryButtonText}>
               {uploading ? 'Working...' : 'Take Photo'}
@@ -918,7 +981,9 @@ export default function EditServiceRecordScreen() {
           <Pressable
             style={styles.secondaryButton}
             onPress={handleChoosePhoto}
-            disabled={uploading || renaming || updatingType}
+            disabled={
+              uploading || renaming || updatingType || settingPrimaryId !== null
+            }
           >
             <Text style={styles.secondaryButtonText}>
               {uploading ? 'Working...' : 'Choose Photo'}
@@ -929,14 +994,60 @@ export default function EditServiceRecordScreen() {
         <Pressable
           style={styles.secondaryButton}
           onPress={handleUploadDocument}
-          disabled={uploading || renaming || updatingType}
+          disabled={
+            uploading || renaming || updatingType || settingPrimaryId !== null
+          }
         >
           <Text style={styles.secondaryButtonText}>
             {uploading ? 'Uploading...' : 'Upload File'}
           </Text>
         </Pressable>
 
-        {filteredDocuments.length === 0 ? (
+        {primaryDocument ? (
+          <View style={styles.primaryHeroCard}>
+            <Text style={styles.primaryHeroLabel}>
+              {isImageDocument(primaryDocument) ? 'Cover photo' : 'Primary receipt'}
+            </Text>
+
+            {isImageDocument(primaryDocument) && primaryPreviewUrl ? (
+              <Pressable onPress={() => openImagePreview(primaryDocument)}>
+                <Image
+                  source={{ uri: primaryPreviewUrl }}
+                  style={styles.primaryHeroImage}
+                />
+              </Pressable>
+            ) : (
+              <View style={styles.primaryHeroFileCard}>
+                <Text style={styles.primaryHeroFileType}>
+                  {getDocumentTypeLabel(primaryDocument)}
+                </Text>
+                <Text style={styles.primaryHeroFileName}>
+                  {primaryDocument.file_name}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.primaryHeroActions}>
+              <Pressable
+                style={styles.inlineButton}
+                onPress={() => handleOpenDocument(primaryDocument)}
+              >
+                <Text style={styles.inlineButtonText}>
+                  {isImageDocument(primaryDocument) ? 'View Full' : 'Open'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.inlineButton}
+                onPress={() => openRenameModalForExisting(primaryDocument)}
+              >
+                <Text style={styles.inlineButtonText}>Edit Name</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {!hasVisibleDocuments ? (
           <View style={styles.documentCard}>
             <Text style={styles.documentMeta}>
               {documents.length === 0
@@ -948,9 +1059,17 @@ export default function EditServiceRecordScreen() {
           filteredDocuments.map((doc) => {
             const previewUrl = documentPreviewUrls[doc.id];
             const isImage = isImageDocument(doc);
+            const primaryLabel = getPrimaryLabel(doc);
+            const isSettingPrimary = settingPrimaryId === doc.id;
 
             return (
-              <View key={doc.id} style={styles.documentCard}>
+              <View
+                key={doc.id}
+                style={[
+                  styles.documentCard,
+                  doc.is_primary && styles.primaryDocumentCard,
+                ]}
+              >
                 {isImage && previewUrl ? (
                   <Pressable onPress={() => openImagePreview(doc)}>
                     <Image source={{ uri: previewUrl }} style={styles.thumbnail} />
@@ -962,6 +1081,12 @@ export default function EditServiceRecordScreen() {
                     </Text>
                   </View>
                 )}
+
+                {primaryLabel ? (
+                  <View style={styles.primaryBadge}>
+                    <Text style={styles.primaryBadgeText}>{primaryLabel}</Text>
+                  </View>
+                ) : null}
 
                 <Text style={styles.documentTitle}>{doc.file_name}</Text>
                 <Text style={styles.documentMeta}>
@@ -993,6 +1118,28 @@ export default function EditServiceRecordScreen() {
                     onPress={() => openTypeModal(doc)}
                   >
                     <Text style={styles.inlineButtonText}>Change Type</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.inlineButton,
+                      doc.is_primary && styles.inlineButtonActive,
+                    ]}
+                    onPress={() => handleSetPrimary(doc)}
+                    disabled={isSettingPrimary}
+                  >
+                    <Text
+                      style={[
+                        styles.inlineButtonText,
+                        doc.is_primary && styles.inlineButtonTextActive,
+                      ]}
+                    >
+                      {isSettingPrimary
+                        ? 'Saving...'
+                        : doc.is_primary
+                          ? 'Primary'
+                          : 'Set Primary'}
+                    </Text>
                   </Pressable>
 
                   <Pressable
@@ -1263,6 +1410,10 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     marginBottom: SPACING.sm,
   },
+  primaryDocumentCard: {
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+  },
   thumbnail: {
     width: '100%',
     height: 180,
@@ -1279,6 +1430,19 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   fileBadgeText: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  primaryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.accentSoft,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: SPACING.sm,
+  },
+  primaryBadgeText: {
     color: COLORS.accent,
     fontSize: 12,
     fontWeight: '700',
@@ -1310,10 +1474,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
+  inlineButtonActive: {
+    backgroundColor: COLORS.accentSoft,
+    borderColor: COLORS.accent,
+  },
   inlineButtonText: {
     color: COLORS.primary,
     fontWeight: '700',
     fontSize: 13,
+  },
+  inlineButtonTextActive: {
+    color: COLORS.accent,
   },
   inlineDeleteButton: {
     minWidth: '47%',
@@ -1463,5 +1634,47 @@ const styles = StyleSheet.create({
   previewEmptyText: {
     color: '#fff',
     fontSize: 16,
+  },
+  primaryHeroCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+  },
+  primaryHeroLabel: {
+    color: COLORS.accent,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: SPACING.sm,
+  },
+  primaryHeroImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.sm,
+    resizeMode: 'cover',
+  },
+  primaryHeroFileCard: {
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  primaryHeroFileType: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  primaryHeroFileName: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  primaryHeroActions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
   },
 });

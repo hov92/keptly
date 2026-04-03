@@ -160,6 +160,10 @@ export default function RootLayout() {
           name="records/service-records/edit/[id]"
           options={{ title: 'Edit service record' }}
         />
+        <Stack.Screen
+  name="records/service-records/[id]"
+  options={{ title: 'Service record' }}
+/>
       </Stack.Protected>
     </Stack>
   );
