@@ -19,12 +19,20 @@ import { SHOPPING_CATEGORIES } from '../../lib/shopping';
 
 type ShoppingItem = {
   id: string;
+  household_id: string;
   title: string;
   quantity: number | null;
   unit: string | null;
   category: string | null;
   notes: string | null;
   is_completed: boolean;
+  is_favorite: boolean;
+  assigned_to: string | null;
+};
+
+type MemberOption = {
+  id: string;
+  full_name: string | null;
 };
 
 export default function ShoppingItemDetailScreen() {
@@ -37,12 +45,14 @@ export default function ShoppingItemDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [item, setItem] = useState<ShoppingItem | null>(null);
+  const [members, setMembers] = useState<MemberOption[]>([]);
 
   const [title, setTitle] = useState('');
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
   const [category, setCategory] = useState('Other');
   const [notes, setNotes] = useState('');
+  const [assignedTo, setAssignedTo] = useState<string>('');
 
   function handleBack() {
     smartBack({
@@ -59,7 +69,9 @@ export default function ShoppingItemDetailScreen() {
 
         const { data, error } = await supabase
           .from('shopping_list_items')
-          .select('id, title, quantity, unit, category, notes, is_completed')
+          .select(
+            'id, household_id, title, quantity, unit, category, notes, is_completed, is_favorite, assigned_to'
+          )
           .eq('id', id)
           .single();
 
@@ -75,6 +87,18 @@ export default function ShoppingItemDetailScreen() {
         setUnit(nextItem.unit ?? '');
         setCategory(nextItem.category ?? 'Other');
         setNotes(nextItem.notes ?? '');
+        setAssignedTo(nextItem.assigned_to ?? '');
+
+        const { data: namesData, error: namesError } = await supabase.rpc(
+          'get_shared_household_member_names'
+        );
+
+        if (namesError) {
+          Alert.alert('Load failed', namesError.message);
+          return;
+        }
+
+        setMembers((namesData ?? []) as MemberOption[]);
       } catch (error) {
         console.error(error);
         Alert.alert('Load failed', 'Could not load this item.');
@@ -113,6 +137,7 @@ export default function ShoppingItemDetailScreen() {
           unit: unit.trim() || null,
           category,
           notes: notes.trim() || null,
+          assigned_to: assignedTo || null,
         })
         .eq('id', id);
 
@@ -135,7 +160,10 @@ export default function ShoppingItemDetailScreen() {
 
     const { error } = await supabase
       .from('shopping_list_items')
-      .update({ is_completed: !item.is_completed })
+      .update({
+        is_completed: !item.is_completed,
+        last_purchased_at: !item.is_completed ? new Date().toISOString() : null,
+      })
       .eq('id', item.id);
 
     if (error) {
@@ -147,6 +175,53 @@ export default function ShoppingItemDetailScreen() {
       ...item,
       is_completed: !item.is_completed,
     });
+  }
+
+  async function handleToggleFavorite() {
+    if (!item) return;
+
+    const { error } = await supabase
+      .from('shopping_list_items')
+      .update({ is_favorite: !item.is_favorite })
+      .eq('id', item.id);
+
+    if (error) {
+      Alert.alert('Update failed', error.message);
+      return;
+    }
+
+    setItem({
+      ...item,
+      is_favorite: !item.is_favorite,
+    });
+  }
+
+  async function handleAddAgain() {
+    if (!item) return;
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const { error } = await supabase.from('shopping_list_items').insert({
+      household_id: item.household_id,
+      title: title.trim() || item.title,
+      quantity: quantity.trim() === '' ? null : Number.parseFloat(quantity.trim()),
+      unit: unit.trim() || null,
+      category,
+      notes: notes.trim() || null,
+      is_completed: false,
+      is_favorite: item.is_favorite,
+      created_by: session?.user?.id ?? null,
+      assigned_to: assignedTo || null,
+    });
+
+    if (error) {
+      Alert.alert('Add again failed', error.message);
+      return;
+    }
+
+    Alert.alert('Added', 'A new copy was added to the shopping list.');
   }
 
   async function handleDelete() {
@@ -232,6 +307,46 @@ export default function ShoppingItemDetailScreen() {
         placeholder="Select category"
       />
 
+      <Text style={styles.label}>Assign to</Text>
+      <View style={styles.memberWrap}>
+        <Pressable
+          style={[
+            styles.memberChip,
+            assignedTo === '' && styles.memberChipActive,
+          ]}
+          onPress={() => setAssignedTo('')}
+        >
+          <Text
+            style={[
+              styles.memberChipText,
+              assignedTo === '' && styles.memberChipTextActive,
+            ]}
+          >
+            No one
+          </Text>
+        </Pressable>
+
+        {members.map((member) => (
+          <Pressable
+            key={member.id}
+            style={[
+              styles.memberChip,
+              assignedTo === member.id && styles.memberChipActive,
+            ]}
+            onPress={() => setAssignedTo(member.id)}
+          >
+            <Text
+              style={[
+                styles.memberChipText,
+                assignedTo === member.id && styles.memberChipTextActive,
+              ]}
+            >
+              {member.full_name || 'Member'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <FormInput
         placeholder="Notes (optional)"
         value={notes}
@@ -249,6 +364,16 @@ export default function ShoppingItemDetailScreen() {
         <Text style={styles.secondaryButtonText}>
           {item.is_completed ? 'Mark Active' : 'Mark Completed'}
         </Text>
+      </Pressable>
+
+      <Pressable style={styles.secondaryButton} onPress={handleToggleFavorite}>
+        <Text style={styles.secondaryButtonText}>
+          {item.is_favorite ? 'Remove Favorite' : 'Mark Favorite'}
+        </Text>
+      </Pressable>
+
+      <Pressable style={styles.secondaryButton} onPress={handleAddAgain}>
+        <Text style={styles.secondaryButtonText}>Add Again</Text>
       </Pressable>
 
       <Pressable style={styles.deleteButton} onPress={handleDelete}>
@@ -282,6 +407,38 @@ const styles = StyleSheet.create({
   emptyText: {
     color: COLORS.muted,
     fontSize: 15,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  memberWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  memberChip: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  memberChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  memberChipText: {
+    color: COLORS.text,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  memberChipTextActive: {
+    color: COLORS.primaryText,
   },
   primaryButton: {
     backgroundColor: COLORS.primary,

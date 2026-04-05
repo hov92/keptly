@@ -1,5 +1,6 @@
 export const SHOPPING_CATEGORIES = [
   'Produce',
+  'Bread',
   'Dairy',
   'Meat',
   'Frozen',
@@ -13,6 +14,16 @@ export const SHOPPING_CATEGORIES = [
 
 export type ShoppingCategory = (typeof SHOPPING_CATEGORIES)[number];
 
+export type ShoppingFilter =
+  | 'all'
+  | 'active'
+  | 'completed'
+  | 'assigned'
+  | 'favorites'
+  | 'pantry';
+
+export type ShoppingRecurrenceType = 'weekly' | 'biweekly' | 'monthly';
+
 export type ShoppingListItem = {
   id: string;
   household_id: string;
@@ -22,19 +33,35 @@ export type ShoppingListItem = {
   category: string | null;
   notes: string | null;
   is_completed: boolean;
+  is_favorite: boolean;
+  is_in_pantry: boolean;
   created_by: string | null;
   assigned_to: string | null;
   created_at: string;
   updated_at: string;
+  last_purchased_at?: string | null;
+  recurrence_type?: ShoppingRecurrenceType | null;
+  recurrence_interval?: number | null;
+  next_recurrence_date?: string | null;
   created_by_name?: string | null;
   assigned_to_name?: string | null;
 };
-
-export type ShoppingFilter = 'all' | 'active' | 'completed' | 'assigned';
 
 export function formatQuantity(value: number | null, unit: string | null) {
   if (value == null && !unit) return null;
   if (value != null && unit) return `${value} ${unit}`;
   if (value != null) return `${value}`;
   return unit;
+}
+
+export function recurrenceLabel(
+  recurrenceType?: ShoppingRecurrenceType | null,
+  recurrenceInterval?: number | null
+) {
+  if (!recurrenceType) return null;
+  if (recurrenceType === 'weekly') return 'Repeats weekly';
+  if (recurrenceType === 'biweekly') return 'Repeats every 2 weeks';
+  if (recurrenceType === 'monthly') return 'Repeats monthly';
+  if (recurrenceInterval) return `Repeats every ${recurrenceInterval}`;
+  return 'Repeats';
 }
