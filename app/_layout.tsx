@@ -166,6 +166,10 @@ export default function RootLayout() {
 />
 <Stack.Screen name="shopping/new" options={{ title: 'Add item' }} />
 <Stack.Screen name="shopping/[id]" options={{ title: 'Item details' }} />
+<Stack.Screen name="shopping/recurring" options={{ title: 'Recurring items' }} />
+<Stack.Screen name="shopping/recurring-new" options={{ title: 'New recurring item' }} />
+<Stack.Screen name="shopping/pantry" options={{ title: 'Pantry' }} />
+<Stack.Screen name="shopping/pantry-new" options={{ title: 'New pantry item' }} />
       </Stack.Protected>
     </Stack>
   );

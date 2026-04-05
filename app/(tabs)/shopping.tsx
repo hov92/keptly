@@ -18,10 +18,14 @@ import { getCurrentHouseholdId } from '../../lib/household';
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import {
   formatQuantity,
-  recurrenceLabel,
   type ShoppingFilter,
   type ShoppingListItem,
 } from '../../lib/shopping';
+import {
+  isLowStock,
+  type PantryItem,
+  type ShoppingRecurringTemplate,
+} from '../../lib/shopping-phase3';
 
 type SharedMemberName = {
   id: string;
@@ -36,10 +40,51 @@ type SectionRow = {
 export default function ShoppingScreen() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ShoppingListItem[]>([]);
+  const [favorites, setFavorites] = useState<ShoppingRecurringTemplate[]>([]);
+  const [recurring, setRecurring] = useState<ShoppingRecurringTemplate[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [activeFilter, setActiveFilter] = useState<ShoppingFilter>('active');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [clearingCompleted, setClearingCompleted] = useState(false);
+
+  async function addItemFromSource(params: {
+    title: string;
+    quantity: number | null;
+    unit: string | null;
+    category: string | null;
+    notes: string | null;
+    assigned_to?: string | null;
+    source_type?: string | null;
+    recurring_template_id?: string | null;
+  }) {
+    if (!householdId) return;
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const { error } = await supabase.from('shopping_list_items').insert({
+      household_id: householdId,
+      title: params.title,
+      quantity: params.quantity,
+      unit: params.unit,
+      category: params.category,
+      notes: params.notes,
+      assigned_to: params.assigned_to ?? null,
+      source_type: params.source_type ?? null,
+      recurring_template_id: params.recurring_template_id ?? null,
+      is_completed: false,
+      created_by: session?.user?.id ?? null,
+    });
+
+    if (error) {
+      Alert.alert('Add failed', error.message);
+      return;
+    }
+
+    loadItems();
+  }
 
   async function loadItems() {
     try {
@@ -65,27 +110,56 @@ export default function ShoppingScreen() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('shopping_list_items')
-        .select(
-          'id, household_id, title, quantity, unit, category, notes, is_completed, is_favorite, is_in_pantry, created_by, assigned_to, created_at, updated_at, last_purchased_at, recurrence_type, recurrence_interval, next_recurrence_date'
-        )
-        .eq('household_id', nextHouseholdId)
-        .order('is_completed', { ascending: true })
-        .order('category', { ascending: true })
-        .order('created_at', { ascending: false });
+      const [
+        { data: shoppingData, error: shoppingError },
+        { data: namesData, error: namesError },
+        { data: recurringData, error: recurringError },
+        { data: pantryData, error: pantryError },
+      ] = await Promise.all([
+        supabase
+          .from('shopping_list_items')
+          .select(
+            'id, household_id, title, quantity, unit, category, notes, is_completed, is_favorite, created_by, assigned_to, created_at, updated_at, last_purchased_at'
+          )
+          .eq('household_id', nextHouseholdId)
+          .order('is_completed', { ascending: true })
+          .order('category', { ascending: true })
+          .order('created_at', { ascending: false }),
+        supabase.rpc('get_shared_household_member_names'),
+        supabase
+          .from('shopping_recurring_templates')
+          .select(
+            'id, household_id, title, quantity, unit, category, notes, assigned_to, is_favorite, is_active, created_by, created_at, updated_at'
+          )
+          .eq('household_id', nextHouseholdId)
+          .eq('is_active', true)
+          .order('title', { ascending: true }),
+        supabase
+          .from('pantry_items')
+          .select(
+            'id, household_id, title, quantity, unit, category, notes, low_stock_threshold, created_by, created_at, updated_at'
+          )
+          .eq('household_id', nextHouseholdId)
+          .order('title', { ascending: true }),
+      ]);
 
-      if (error) {
-        Alert.alert('Load failed', error.message);
+      if (shoppingError) {
+        Alert.alert('Load failed', shoppingError.message);
         return;
       }
 
-      const { data: namesData, error: namesError } = await supabase.rpc(
-        'get_shared_household_member_names'
-      );
-
       if (namesError) {
         Alert.alert('Load failed', namesError.message);
+        return;
+      }
+
+      if (recurringError) {
+        Alert.alert('Load failed', recurringError.message);
+        return;
+      }
+
+      if (pantryError) {
+        Alert.alert('Load failed', pantryError.message);
         return;
       }
 
@@ -96,7 +170,7 @@ export default function ShoppingScreen() {
         ])
       );
 
-      const rows = ((data ?? []) as ShoppingListItem[]).map((item) => ({
+      const shoppingRows = ((shoppingData ?? []) as ShoppingListItem[]).map((item) => ({
         ...item,
         created_by_name: item.created_by
           ? (nameMap.get(item.created_by) ?? null)
@@ -106,7 +180,19 @@ export default function ShoppingScreen() {
           : null,
       }));
 
-      setItems(rows);
+      const recurringRows = ((recurringData ?? []) as ShoppingRecurringTemplate[]).map(
+        (item) => ({
+          ...item,
+          assigned_to_name: item.assigned_to
+            ? (nameMap.get(item.assigned_to) ?? null)
+            : null,
+        })
+      );
+
+      setItems(shoppingRows);
+      setFavorites(recurringRows.filter((item) => item.is_favorite));
+      setRecurring(recurringRows);
+      setPantryItems((pantryData ?? []) as PantryItem[]);
     } catch (error) {
       console.error(error);
       Alert.alert('Load failed', 'Could not load shopping list.');
@@ -151,84 +237,6 @@ export default function ShoppingScreen() {
 
     if (error) {
       Alert.alert('Update failed', error.message);
-      return;
-    }
-
-    loadItems();
-  }
-
-  async function handleTogglePantry(item: ShoppingListItem) {
-    const { error } = await supabase
-      .from('shopping_list_items')
-      .update({ is_in_pantry: !item.is_in_pantry })
-      .eq('id', item.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
-      return;
-    }
-
-    loadItems();
-  }
-
-  async function handleAddAgain(item: ShoppingListItem) {
-    if (!householdId) return;
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    const { error } = await supabase.from('shopping_list_items').insert({
-      household_id: householdId,
-      title: item.title,
-      quantity: item.quantity,
-      unit: item.unit,
-      category: item.category,
-      notes: item.notes,
-      is_completed: false,
-      is_favorite: item.is_favorite,
-      is_in_pantry: item.is_in_pantry,
-      created_by: session?.user?.id ?? null,
-      assigned_to: item.assigned_to,
-      recurrence_type: item.recurrence_type ?? null,
-      recurrence_interval: item.recurrence_interval ?? null,
-      next_recurrence_date: item.next_recurrence_date ?? null,
-    });
-
-    if (error) {
-      Alert.alert('Add again failed', error.message);
-      return;
-    }
-
-    loadItems();
-  }
-
-  async function handleQuickAddFavorite(item: ShoppingListItem) {
-    if (!householdId) return;
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    const { error } = await supabase.from('shopping_list_items').insert({
-      household_id: householdId,
-      title: item.title,
-      quantity: item.quantity,
-      unit: item.unit,
-      category: item.category,
-      notes: item.notes,
-      is_completed: false,
-      is_favorite: true,
-      is_in_pantry: item.is_in_pantry,
-      created_by: session?.user?.id ?? null,
-      assigned_to: item.assigned_to,
-      recurrence_type: item.recurrence_type ?? null,
-      recurrence_interval: item.recurrence_interval ?? null,
-      next_recurrence_date: item.next_recurrence_date ?? null,
-    });
-
-    if (error) {
-      Alert.alert('Quick add failed', error.message);
       return;
     }
 
@@ -297,28 +305,6 @@ export default function ShoppingScreen() {
     );
   }
 
-  const favorites = useMemo(
-    () =>
-      items
-        .filter((item) => item.is_favorite)
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .slice(0, 10),
-    [items]
-  );
-
-  const recentItems = useMemo(
-    () =>
-      [...items]
-        .filter((item) => !!item.last_purchased_at)
-        .sort((a, b) => {
-          const aTime = new Date(a.last_purchased_at || '').getTime();
-          const bTime = new Date(b.last_purchased_at || '').getTime();
-          return bTime - aTime;
-        })
-        .slice(0, 10),
-    [items]
-  );
-
   const filteredItems = useMemo(() => {
     if (activeFilter === 'active') {
       return items.filter((item) => !item.is_completed);
@@ -336,16 +322,17 @@ export default function ShoppingScreen() {
       return items.filter((item) => item.is_favorite);
     }
 
-    if (activeFilter === 'pantry') {
-      return items.filter((item) => item.is_in_pantry);
-    }
-
     return items;
   }, [items, activeFilter, currentUserId]);
 
   const completedCount = useMemo(
     () => items.filter((item) => item.is_completed).length,
     [items]
+  );
+
+  const lowStockItems = useMemo(
+    () => pantryItems.filter(isLowStock),
+    [pantryItems]
   );
 
   const sections = useMemo<SectionRow[]>(() => {
@@ -399,48 +386,6 @@ export default function ShoppingScreen() {
               </Pressable>
             </View>
 
-            {favorites.length > 0 ? (
-              <View style={styles.quickBlock}>
-                <Text style={styles.quickTitle}>Favorite quick add</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.quickRow}
-                >
-                  {favorites.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      style={styles.quickChip}
-                      onPress={() => handleQuickAddFavorite(item)}
-                    >
-                      <Text style={styles.quickChipText}>{item.title}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            ) : null}
-
-            {recentItems.length > 0 ? (
-              <View style={styles.quickBlock}>
-                <Text style={styles.quickTitle}>Buy again</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.quickRow}
-                >
-                  {recentItems.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      style={styles.quickChip}
-                      onPress={() => handleAddAgain(item)}
-                    >
-                      <Text style={styles.quickChipText}>{item.title}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            ) : null}
-
             <View style={styles.filterRow}>
               {[
                 ['all', 'All'],
@@ -448,7 +393,6 @@ export default function ShoppingScreen() {
                 ['completed', 'Completed'],
                 ['assigned', 'Assigned to me'],
                 ['favorites', 'Favorites'],
-                ['pantry', 'Pantry'],
               ].map(([value, label]) => (
                 <Pressable
                   key={value}
@@ -470,6 +414,98 @@ export default function ShoppingScreen() {
               ))}
             </View>
 
+            {favorites.length > 0 ? (
+              <View style={styles.quickBlock}>
+                <Text style={styles.quickTitle}>Favorite quick add</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.quickRow}>
+                    {favorites.map((item) => (
+                      <Pressable
+                        key={item.id}
+                        style={styles.quickChip}
+                        onPress={() =>
+                          addItemFromSource({
+                            title: item.title,
+                            quantity: item.quantity,
+                            unit: item.unit,
+                            category: item.category,
+                            notes: item.notes,
+                            assigned_to: item.assigned_to,
+                            source_type: 'favorite',
+                            recurring_template_id: item.id,
+                          })
+                        }
+                      >
+                        <Text style={styles.quickChipText}>{item.title}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+            ) : null}
+
+            {recurring.length > 0 ? (
+              <View style={styles.quickBlock}>
+                <Text style={styles.quickTitle}>Recurring quick add</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <View style={styles.quickRow}>
+                    {recurring.map((item) => (
+                      <Pressable
+                        key={item.id}
+                        style={styles.quickChip}
+                        onPress={() =>
+                          addItemFromSource({
+                            title: item.title,
+                            quantity: item.quantity,
+                            unit: item.unit,
+                            category: item.category,
+                            notes: item.notes,
+                            assigned_to: item.assigned_to,
+                            source_type: 'recurring',
+                            recurring_template_id: item.id,
+                          })
+                        }
+                      >
+                        <Text style={styles.quickChipText}>{item.title}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+            ) : null}
+
+            {lowStockItems.length > 0 ? (
+              <View style={styles.quickBlock}>
+                <Text style={styles.quickTitle}>Low stock pantry</Text>
+                {lowStockItems.map((item) => (
+                  <View key={item.id} style={styles.lowStockCard}>
+                    <View style={styles.lowStockTextWrap}>
+                      <Text style={styles.lowStockTitle}>{item.title}</Text>
+                      <Text style={styles.lowStockMeta}>
+                        Qty: {formatQuantity(item.quantity, item.unit) || 'Unknown'}
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      style={styles.smallActionButton}
+                      onPress={() =>
+                        addItemFromSource({
+                          title: item.title,
+                          quantity: null,
+                          unit: item.unit,
+                          category: item.category,
+                          notes: item.notes,
+                          source_type: 'pantry',
+                        })
+                      }
+                    >
+                      <Text style={styles.smallActionText}>Add to List</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
             {completedCount > 0 ? (
               <Pressable
                 style={styles.clearButton}
@@ -488,10 +524,6 @@ export default function ShoppingScreen() {
         )}
         renderItem={({ item }) => {
           const quantityLabel = formatQuantity(item.quantity, item.unit);
-          const recurrence = recurrenceLabel(
-            item.recurrence_type,
-            item.recurrence_interval
-          );
 
           return (
             <Pressable
@@ -540,23 +572,6 @@ export default function ShoppingScreen() {
                   </Pressable>
 
                   <Pressable
-                    style={[
-                      styles.pantryButton,
-                      item.is_in_pantry && styles.pantryButtonActive,
-                    ]}
-                    onPress={() => handleTogglePantry(item)}
-                  >
-                    <Text
-                      style={[
-                        styles.pantryButtonText,
-                        item.is_in_pantry && styles.pantryButtonTextActive,
-                      ]}
-                    >
-                      {item.is_in_pantry ? 'Pantry' : 'Set Pantry'}
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
                     style={styles.deleteButton}
                     onPress={() => handleDelete(item)}
                   >
@@ -596,12 +611,20 @@ export default function ShoppingScreen() {
                 </Text>
               ) : null}
 
-              {recurrence ? <Text style={styles.meta}>{recurrence}</Text> : null}
-
               <View style={styles.bottomActions}>
                 <Pressable
                   style={styles.smallActionButton}
-                  onPress={() => handleAddAgain(item)}
+                  onPress={() =>
+                    addItemFromSource({
+                      title: item.title,
+                      quantity: item.quantity,
+                      unit: item.unit,
+                      category: item.category,
+                      notes: item.notes,
+                      assigned_to: item.assigned_to,
+                      source_type: 'shopping-copy',
+                    })
+                  }
                 >
                   <Text style={styles.smallActionText}>Add Again</Text>
                 </Pressable>
@@ -664,31 +687,6 @@ const styles = StyleSheet.create({
     color: COLORS.primaryText,
     fontWeight: '700',
   },
-  quickBlock: {
-    marginBottom: SPACING.md,
-  },
-  quickTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: SPACING.sm,
-  },
-  quickRow: {
-    gap: SPACING.sm,
-    paddingRight: SPACING.md,
-  },
-  quickChip: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  quickChipText: {
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
   filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -714,6 +712,54 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: COLORS.primaryText,
+  },
+  quickBlock: {
+    marginBottom: SPACING.md,
+  },
+  quickTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  quickChip: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  quickChipText: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  lowStockCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  lowStockTextWrap: {
+    flex: 1,
+  },
+  lowStockTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  lowStockMeta: {
+    fontSize: 14,
+    color: COLORS.muted,
   },
   clearButton: {
     alignSelf: 'flex-start',
@@ -791,26 +837,6 @@ const styles = StyleSheet.create({
   },
   favoriteButtonTextActive: {
     color: '#9A5B00',
-  },
-  pantryButton: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  pantryButtonActive: {
-    backgroundColor: COLORS.accentSoft,
-    borderColor: COLORS.accent,
-  },
-  pantryButtonText: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  pantryButtonTextActive: {
-    color: COLORS.accent,
   },
   deleteButton: {
     backgroundColor: COLORS.dangerSoft,
