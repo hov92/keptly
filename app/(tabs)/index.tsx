@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -17,6 +17,12 @@ import {
   formatRecurrenceLabel,
   WeekdayCode,
 } from '../../lib/task-recurrence';
+import { formatQuantity } from '../../lib/shopping';
+import { isLowStock } from '../../lib/shopping-phase3';
+import {
+  getHouseholdActivity,
+  type HouseholdActivityItem,
+} from '../../lib/household-activity';
 
 type Task = {
   id: string;
@@ -43,14 +49,133 @@ type SharedMemberName = {
   full_name: string | null;
 };
 
+type ShoppingItem = {
+  id: string;
+  household_id: string;
+  list_id: string;
+  title: string;
+  quantity: number | null;
+  unit: string | null;
+  category: string | null;
+  notes: string | null;
+  is_completed: boolean;
+  is_favorite: boolean;
+  created_by: string | null;
+  assigned_to: string | null;
+  created_at: string;
+  updated_at: string;
+  last_purchased_at?: string | null;
+  created_by_name?: string | null;
+  assigned_to_name?: string | null;
+};
+
+type PantryItem = {
+  id: string;
+  household_id: string;
+  title: string;
+  quantity: number | null;
+  unit: string | null;
+  category: string | null;
+  notes: string | null;
+  low_stock_threshold: number | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type HouseholdActivityFeedItem = HouseholdActivityItem & {
+  actor_name?: string;
+  target_name?: string | null;
+};
+
 function shouldHideFromDefaultList(task: Task) {
   return task.is_completed && !!task.recurrence;
+}
+
+function formatActivityTime(value: string) {
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+}
+
+function getActivityLabel(item: HouseholdActivityFeedItem) {
+  const actor = item.actor_name || 'System';
+  const target = item.target_name || 'someone';
+  const details = item.details ?? {};
+
+  if (item.action === 'task_created') {
+    return `${actor} created a task`;
+  }
+
+  if (item.action === 'task_completed') {
+    return `${actor} completed a task`;
+  }
+
+  if (item.action === 'task_assigned') {
+    return `${actor} assigned a task to ${target}`;
+  }
+
+  if (item.action === 'shopping_item_added') {
+    return `${actor} added a shopping item`;
+  }
+
+  if (item.action === 'shopping_item_completed') {
+    return `${actor} completed a shopping item`;
+  }
+
+  if (item.action === 'shopping_item_deleted') {
+    return `${actor} deleted a shopping item`;
+  }
+
+  if (item.action === 'pantry_item_added') {
+    return `${actor} added a pantry item`;
+  }
+
+  if (item.action === 'pantry_item_updated') {
+    return `${actor} updated a pantry item`;
+  }
+
+  if (item.action === 'provider_added') {
+    return `${actor} added a provider`;
+  }
+
+  if (item.action === 'service_record_added') {
+    return `${actor} added a service record`;
+  }
+
+  if (item.action === 'member_invited') {
+    return `${actor} invited ${target}`;
+  }
+
+  if (item.action === 'member_joined') {
+    return `${actor} joined the household`;
+  }
+
+  const title =
+    typeof details.title === 'string'
+      ? details.title
+      : typeof details.name === 'string'
+      ? details.name
+      : null;
+
+  if (title) {
+    return `${actor} ${item.action.replaceAll('_', ' ')}: ${title}`;
+  }
+
+  return `${actor} ${item.action.replaceAll('_', ' ')}`;
 }
 
 export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [household, setHousehold] = useState<Household | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [activityItems, setActivityItems] = useState<HouseholdActivityFeedItem[]>(
+    []
+  );
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const loadDashboard = async () => {
@@ -72,37 +197,63 @@ export default function HomeScreen() {
         return;
       }
 
-      const { data: householdData, error: householdError } = await supabase
-        .from('households')
-        .select('id, name, home_type')
-        .eq('id', householdId)
-        .single();
+      const [
+        { data: householdData, error: householdError },
+        { data: tasksData, error: tasksError },
+        { data: shoppingData, error: shoppingError },
+        { data: pantryData, error: pantryError },
+        { data: namesData, error: namesError },
+        activityData,
+      ] = await Promise.all([
+        supabase
+          .from('households')
+          .select('id, name, home_type')
+          .eq('id', householdId)
+          .single(),
+        supabase
+          .from('tasks')
+          .select(
+            'id, title, category, due_date, is_completed, created_at, assigned_to, recurrence, recurrence_days, recurrence_interval'
+          )
+          .eq('household_id', householdId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('shopping_list_items')
+          .select(
+            'id, household_id, list_id, title, quantity, unit, category, notes, is_completed, is_favorite, created_by, assigned_to, created_at, updated_at, last_purchased_at'
+          )
+          .eq('household_id', householdId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('pantry_items')
+          .select(
+            'id, household_id, title, quantity, unit, category, notes, low_stock_threshold, created_by, created_at, updated_at'
+          )
+          .eq('household_id', householdId)
+          .order('title', { ascending: true }),
+        supabase.rpc('get_shared_household_member_names'),
+        getHouseholdActivity(),
+      ]);
 
       if (householdError) {
         console.error(householdError.message);
         return;
       }
 
-      const { data: tasksData, error: tasksError } = await supabase
-        .from('tasks')
-        .select(
-          'id, title, category, due_date, is_completed, created_at, assigned_to, recurrence, recurrence_days, recurrence_interval'
-        )
-        .eq('household_id', householdId)
-        .order('created_at', { ascending: false });
-
       if (tasksError) {
         console.error(tasksError.message);
         return;
       }
 
-      const taskRows = ((tasksData ?? []) as Task[]).filter(
-        (task) => !shouldHideFromDefaultList(task)
-      );
+      if (shoppingError) {
+        console.error(shoppingError.message);
+        return;
+      }
 
-      const { data: namesData, error: namesError } = await supabase.rpc(
-        'get_shared_household_member_names'
-      );
+      if (pantryError) {
+        console.error(pantryError.message);
+        return;
+      }
 
       if (namesError) {
         console.error(namesError.message);
@@ -116,6 +267,10 @@ export default function HomeScreen() {
         ])
       );
 
+      const taskRows = ((tasksData ?? []) as Task[]).filter(
+        (task) => !shouldHideFromDefaultList(task)
+      );
+
       setHousehold(householdData as Household);
       setTasks(
         taskRows.map((task) => ({
@@ -125,6 +280,21 @@ export default function HomeScreen() {
             : null,
         }))
       );
+
+      setShoppingItems(
+        ((shoppingData ?? []) as ShoppingItem[]).map((item) => ({
+          ...item,
+          created_by_name: item.created_by
+            ? (nameMap.get(item.created_by) ?? null)
+            : null,
+          assigned_to_name: item.assigned_to
+            ? (nameMap.get(item.assigned_to) ?? null)
+            : null,
+        }))
+      );
+
+      setPantryItems((pantryData ?? []) as PantryItem[]);
+      setActivityItems((activityData ?? []) as HouseholdActivityFeedItem[]);
     } catch (error) {
       console.error(error);
     } finally {
@@ -140,46 +310,61 @@ export default function HomeScreen() {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  const dueTodayCount = tasks.filter(
-    (task) => !task.is_completed && task.due_date === today
-  ).length;
+  const overdueTasks = useMemo(
+    () =>
+      tasks.filter(
+        (task) => !task.is_completed && !!task.due_date && task.due_date < today
+      ),
+    [tasks, today]
+  );
 
-  const upcomingCount = tasks.filter(
-    (task) => !task.is_completed && !!task.due_date && task.due_date > today
-  ).length;
+  const dueTodayTasks = useMemo(
+    () => tasks.filter((task) => !task.is_completed && task.due_date === today),
+    [tasks, today]
+  );
 
-  const overdueCount = tasks.filter(
-    (task) => !task.is_completed && !!task.due_date && task.due_date < today
-  ).length;
+  const assignedToMeTasks = useMemo(
+    () =>
+      currentUserId
+        ? tasks.filter(
+            (task) => task.assigned_to === currentUserId && !task.is_completed
+          )
+        : [],
+    [tasks, currentUserId]
+  );
+
+  const shoppingForMe = useMemo(
+    () =>
+      currentUserId
+        ? shoppingItems.filter(
+            (item) => item.assigned_to === currentUserId && !item.is_completed
+          )
+        : [],
+    [shoppingItems, currentUserId]
+  );
+
+  const lowStockItems = useMemo(
+    () => pantryItems.filter(isLowStock),
+    [pantryItems]
+  );
 
   const completedCount = tasks.filter((task) => task.is_completed).length;
 
-  const recentTasks = tasks.slice(0, 4);
-
-  const assignedToMe = currentUserId
-    ? tasks.filter((task) => task.assigned_to === currentUserId && !task.is_completed)
-    : [];
-
-  const assignedToMePreview = assignedToMe.slice(0, 3);
-
-  function isOverdue(task: Task) {
-    return !task.is_completed && !!task.due_date && task.due_date < today;
-  }
-
   function renderTaskCard(task: Task) {
-    const overdue = isOverdue(task);
+    const overdue =
+      !task.is_completed && !!task.due_date && task.due_date < today;
 
     return (
       <Pressable
         key={task.id}
         onPress={() =>
           router.push({
-  pathname: '/tasks/[id]',
-  params: {
-    id: task.id,
-    returnTo: '/(tabs)/tasks',
-  },
-})
+            pathname: '/tasks/[id]',
+            params: {
+              id: task.id,
+              returnTo: '/(tabs)',
+            },
+          })
         }
         style={[styles.taskCard, overdue && styles.taskCardOverdue]}
       >
@@ -247,6 +432,88 @@ export default function HomeScreen() {
     );
   }
 
+  function renderShoppingCard(item: ShoppingItem) {
+    return (
+      <Pressable
+        key={item.id}
+        onPress={() =>
+          router.push({
+            pathname: '/shopping/[id]',
+            params: {
+              id: item.id,
+              returnTo: '/(tabs)/shopping',
+            },
+          })
+        }
+        style={styles.infoCard}
+      >
+        <Text style={styles.infoCardTitle}>{item.title}</Text>
+
+        {formatQuantity(item.quantity, item.unit) ? (
+          <Text style={styles.infoCardMeta}>
+            Qty: {formatQuantity(item.quantity, item.unit)}
+          </Text>
+        ) : null}
+
+        <Text style={styles.infoCardMeta}>
+          Assigned to: {item.assigned_to_name || 'Unassigned'}
+        </Text>
+
+        {!!item.notes ? (
+          <Text style={styles.infoCardMeta}>Notes: {item.notes}</Text>
+        ) : null}
+      </Pressable>
+    );
+  }
+
+  function renderPantryCard(item: PantryItem) {
+    return (
+      <Pressable
+        key={item.id}
+        onPress={() =>
+          router.push({
+            pathname: '/shopping/pantry/[id]',
+            params: {
+              id: item.id,
+              returnTo: '/shopping/pantry',
+            },
+          })
+        }
+        style={[styles.infoCard, styles.lowStockCard]}
+      >
+        <View style={styles.taskTopRow}>
+          <Text style={styles.infoCardTitle}>{item.title}</Text>
+          <View style={[styles.statusBadge, styles.statusBadgeOverdue]}>
+            <Text style={[styles.statusBadgeText, styles.statusBadgeTextOverdue]}>
+              Low
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.infoCardMeta}>
+          Qty: {formatQuantity(item.quantity, item.unit) || 'Unknown'}
+        </Text>
+
+        <Text style={styles.infoCardMeta}>
+          Threshold: {item.low_stock_threshold ?? 'Not set'}
+        </Text>
+
+        {!!item.category ? (
+          <Text style={styles.infoCardMeta}>Category: {item.category}</Text>
+        ) : null}
+      </Pressable>
+    );
+  }
+
+  function renderActivityCard(item: HouseholdActivityFeedItem) {
+    return (
+      <View key={item.id} style={styles.infoCard}>
+        <Text style={styles.infoCardTitle}>{getActivityLabel(item)}</Text>
+        <Text style={styles.infoCardMeta}>{formatActivityTime(item.created_at)}</Text>
+      </View>
+    );
+  }
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -277,7 +544,7 @@ export default function HomeScreen() {
         <View style={styles.heroCard}>
           <Text style={styles.heroTitle}>Today at a glance</Text>
           <Text style={styles.heroText}>
-            Stay on top of what needs attention around the house.
+            See what needs attention around the house right now.
           </Text>
 
           {!!household?.home_type && (
@@ -286,50 +553,24 @@ export default function HomeScreen() {
 
           <View style={styles.heroButtons}>
             <Pressable
-              style={styles.primaryButton}
+              style={styles.primaryHeroButton}
               onPress={() => router.push('/tasks/new')}
             >
-              <Text style={styles.primaryButtonText}>Add Task</Text>
+              <Text style={styles.primaryHeroButtonText}>Add Task</Text>
             </Pressable>
 
             <Pressable
-              style={styles.secondaryButton}
-              onPress={() => router.push('/(tabs)/tasks')}
+              style={styles.secondaryHeroButton}
+              onPress={() => router.push('/(tabs)/shopping')}
             >
-              <Text style={styles.secondaryButtonText}>View Tasks</Text>
+              <Text style={styles.secondaryHeroButtonText}>Open Shopping</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.statsGrid}>
           <Pressable
-            style={styles.statCard}
-            onPress={() =>
-              router.push({
-                pathname: '/(tabs)/calendar',
-                params: { filter: 'today' },
-              })
-            }
-          >
-            <Text style={styles.statNumber}>{dueTodayCount}</Text>
-            <Text style={styles.statLabel}>Due Today</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.statCard}
-            onPress={() =>
-              router.push({
-                pathname: '/(tabs)/calendar',
-                params: { filter: 'next7' },
-              })
-            }
-          >
-            <Text style={styles.statNumber}>{upcomingCount}</Text>
-            <Text style={styles.statLabel}>Upcoming</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.statCard, overdueCount > 0 && styles.statCardOverdue]}
+            style={[styles.statCard, overdueTasks.length > 0 && styles.statCardOverdue]}
             onPress={() =>
               router.push({
                 pathname: '/(tabs)/calendar',
@@ -340,15 +581,15 @@ export default function HomeScreen() {
             <Text
               style={[
                 styles.statNumber,
-                overdueCount > 0 && styles.statNumberOverdue,
+                overdueTasks.length > 0 && styles.statNumberOverdue,
               ]}
             >
-              {overdueCount}
+              {overdueTasks.length}
             </Text>
             <Text
               style={[
                 styles.statLabel,
-                overdueCount > 0 && styles.statLabelOverdue,
+                overdueTasks.length > 0 && styles.statLabelOverdue,
               ]}
             >
               Overdue
@@ -357,15 +598,89 @@ export default function HomeScreen() {
 
           <Pressable
             style={styles.statCard}
-            onPress={() => router.push('/(tabs)/tasks')}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { filter: 'today' },
+              })
+            }
           >
-            <Text style={styles.statNumber}>{completedCount}</Text>
-            <Text style={styles.statLabel}>Completed</Text>
+            <Text style={styles.statNumber}>{dueTodayTasks.length}</Text>
+            <Text style={styles.statLabel}>Due Today</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.statCard}
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/shopping',
+                params: { filter: 'assigned' },
+              })
+            }
+          >
+            <Text style={styles.statNumber}>{shoppingForMe.length}</Text>
+            <Text style={styles.statLabel}>Shopping</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.statCard}
+            onPress={() => router.push('/shopping/pantry')}
+          >
+            <Text style={styles.statNumber}>{lowStockItems.length}</Text>
+            <Text style={styles.statLabel}>Low Stock</Text>
           </Pressable>
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Assigned to me</Text>
+          <Text style={styles.sectionTitle}>Overdue Tasks</Text>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { filter: 'overdue' },
+              })
+            }
+          >
+            <Text style={styles.sectionLink}>See all</Text>
+          </Pressable>
+        </View>
+
+        {overdueTasks.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No overdue tasks</Text>
+            <Text style={styles.emptyText}>You’re caught up right now.</Text>
+          </View>
+        ) : (
+          overdueTasks.slice(0, 3).map(renderTaskCard)
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Due Today</Text>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { filter: 'today' },
+              })
+            }
+          >
+            <Text style={styles.sectionLink}>See all</Text>
+          </Pressable>
+        </View>
+
+        {dueTodayTasks.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Nothing due today</Text>
+            <Text style={styles.emptyText}>
+              You do not have any tasks due today.
+            </Text>
+          </View>
+        ) : (
+          dueTodayTasks.slice(0, 3).map(renderTaskCard)
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Assigned to Me</Text>
           <Pressable
             onPress={() =>
               router.push({
@@ -378,7 +693,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {assignedToMePreview.length === 0 ? (
+        {assignedToMeTasks.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Nothing assigned to you</Text>
             <Text style={styles.emptyText}>
@@ -386,33 +701,80 @@ export default function HomeScreen() {
             </Text>
           </View>
         ) : (
-          assignedToMePreview.map(renderTaskCard)
+          assignedToMeTasks.slice(0, 3).map(renderTaskCard)
         )}
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent tasks</Text>
+          <Text style={styles.sectionTitle}>Shopping for You</Text>
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/(tabs)/shopping',
+                params: { filter: 'assigned' },
+              })
+            }
+          >
+            <Text style={styles.sectionLink}>See all</Text>
+          </Pressable>
+        </View>
+
+        {shoppingForMe.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No shopping items assigned</Text>
+            <Text style={styles.emptyText}>
+              Assigned shopping items will show up here.
+            </Text>
+          </View>
+        ) : (
+          shoppingForMe.slice(0, 3).map(renderShoppingCard)
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Low Stock Pantry</Text>
+          <Pressable onPress={() => router.push('/shopping/pantry')}>
+            <Text style={styles.sectionLink}>See all</Text>
+          </Pressable>
+        </View>
+
+        {lowStockItems.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Pantry looks good</Text>
+            <Text style={styles.emptyText}>
+              Nothing is below its low-stock threshold right now.
+            </Text>
+          </View>
+        ) : (
+          lowStockItems.slice(0, 3).map(renderPantryCard)
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
+        </View>
+
+        {activityItems.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>No recent activity</Text>
+            <Text style={styles.emptyText}>
+              Household updates will show up here.
+            </Text>
+          </View>
+        ) : (
+          activityItems.slice(0, 5).map(renderActivityCard)
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Completed</Text>
           <Pressable onPress={() => router.push('/(tabs)/tasks')}>
             <Text style={styles.sectionLink}>See all</Text>
           </Pressable>
         </View>
 
-        {recentTasks.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>No tasks yet</Text>
-            <Text style={styles.emptyText}>
-              Add your first household task to get started.
-            </Text>
-
-            <Pressable
-              style={styles.primaryButton}
-              onPress={() => router.push('/tasks/new')}
-            >
-              <Text style={styles.primaryButtonText}>Create Task</Text>
-            </Pressable>
-          </View>
-        ) : (
-          recentTasks.map(renderTaskCard)
-        )}
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>{completedCount}</Text>
+          <Text style={styles.emptyText}>
+            completed tasks currently tracked in your household.
+          </Text>
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -494,20 +856,20 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 4,
   },
-  primaryButton: {
+  primaryHeroButton: {
     flex: 1,
-    backgroundColor: '#264653',
+    backgroundColor: '#1F3D47',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryButtonText: {
+  primaryHeroButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
   },
-  secondaryButton: {
+  secondaryHeroButton: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -515,7 +877,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  secondaryButtonText: {
+  secondaryHeroButtonText: {
     color: '#264653',
     fontSize: 15,
     fontWeight: '600',
@@ -587,7 +949,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 15,
     color: '#5F6368',
-    marginBottom: 16,
+    marginBottom: 0,
     lineHeight: 22,
   },
   taskCard: {
@@ -600,6 +962,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF7F7',
     borderWidth: 1,
     borderColor: '#F2B8B5',
+  },
+  infoCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  lowStockCard: {
+    backgroundColor: '#FFF8F3',
+    borderWidth: 1,
+    borderColor: '#F5D1B3',
   },
   taskTopRow: {
     flexDirection: 'row',
@@ -620,6 +993,13 @@ const styles = StyleSheet.create({
   taskTitleOverdue: {
     color: '#B42318',
   },
+  infoCardTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1F1F1F',
+    marginBottom: 8,
+  },
   taskMeta: {
     fontSize: 14,
     color: '#5F6368',
@@ -627,6 +1007,11 @@ const styles = StyleSheet.create({
   },
   taskMetaOverdue: {
     color: '#B42318',
+  },
+  infoCardMeta: {
+    fontSize: 14,
+    color: '#5F6368',
+    marginBottom: 4,
   },
   statusBadge: {
     borderRadius: 999,
