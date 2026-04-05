@@ -9,8 +9,8 @@ import {
   View,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
@@ -63,12 +63,25 @@ export default function PantryScreen() {
     const householdId = await getCurrentHouseholdId();
     if (!householdId) return;
 
+    const { data: defaultList, error: defaultListError } = await supabase
+      .from('shopping_lists')
+      .select('id')
+      .eq('household_id', householdId)
+      .eq('is_default', true)
+      .single();
+
+    if (defaultListError || !defaultList?.id) {
+      Alert.alert('Add failed', 'No default shopping list found.');
+      return;
+    }
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     const { error } = await supabase.from('shopping_list_items').insert({
       household_id: householdId,
+      list_id: defaultList.id,
       title: item.title,
       quantity: null,
       unit: item.unit,
@@ -89,30 +102,40 @@ export default function PantryScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <SafeAreaView style={styles.center} edges={['top']}>
         <ActivityIndicator size="large" />
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <AppScreen>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Pantry</Text>
-
-        <Pressable
-          style={styles.addButton}
-          onPress={() => router.push('/shopping/pantry-new')}
-        >
-          <Text style={styles.addButtonText}>Add</Text>
-        </Pressable>
-      </View>
-
+    <SafeAreaView style={styles.screen} edges={['top']}>
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>Pantry</Text>
+
+            <Pressable
+              style={styles.addButton}
+              onPress={() => router.push('/shopping/pantry-new')}
+            >
+              <Text style={styles.addButtonText}>Add</Text>
+            </Pressable>
+          </View>
+        }
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <Pressable
+            style={styles.card}
+            onPress={() =>
+              router.push({
+                pathname: '/shopping/pantry/[id]',
+                params: { id: item.id, returnTo: '/shopping/pantry' },
+              })
+            }
+          >
             <Text style={styles.cardTitle}>{item.title}</Text>
             <Text style={styles.meta}>
               Qty: {formatQuantity(item.quantity, item.unit) || 'None'}
@@ -121,6 +144,7 @@ export default function PantryScreen() {
             <Text style={styles.meta}>
               Low stock at: {item.low_stock_threshold ?? 'Not set'}
             </Text>
+
             {isLowStock(item) ? (
               <Text style={styles.lowStockText}>Low stock</Text>
             ) : null}
@@ -131,7 +155,7 @@ export default function PantryScreen() {
             >
               <Text style={styles.secondaryButtonText}>Add to Shopping</Text>
             </Pressable>
-          </View>
+          </Pressable>
         )}
         ListEmptyComponent={
           <View style={styles.card}>
@@ -139,16 +163,24 @@ export default function PantryScreen() {
           </View>
         }
       />
-    </AppScreen>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
   center: {
     flex: 1,
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  listContent: {
+    padding: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
   headerRow: {
     flexDirection: 'row',

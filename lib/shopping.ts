@@ -27,6 +27,7 @@ export type ShoppingRecurrenceType = 'weekly' | 'biweekly' | 'monthly';
 export type ShoppingListItem = {
   id: string;
   household_id: string;
+  list_id: string;
   title: string;
   quantity: number | null;
   unit: string | null;
@@ -34,15 +35,11 @@ export type ShoppingListItem = {
   notes: string | null;
   is_completed: boolean;
   is_favorite: boolean;
-  is_in_pantry: boolean;
   created_by: string | null;
   assigned_to: string | null;
   created_at: string;
   updated_at: string;
   last_purchased_at?: string | null;
-  recurrence_type?: ShoppingRecurrenceType | null;
-  recurrence_interval?: number | null;
-  next_recurrence_date?: string | null;
   created_by_name?: string | null;
   assigned_to_name?: string | null;
 };

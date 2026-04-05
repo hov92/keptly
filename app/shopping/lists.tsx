@@ -14,40 +14,39 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
-import { formatQuantity } from '../../lib/shopping';
-import type { ShoppingRecurringTemplate } from '../../lib/shopping-phase3';
+import type { ShoppingList } from '../../lib/shopping-lists';
 
-export default function RecurringTemplatesScreen() {
+export default function ShoppingListsScreen() {
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<ShoppingRecurringTemplate[]>([]);
+  const [lists, setLists] = useState<ShoppingList[]>([]);
 
-  async function loadTemplates() {
+  async function loadLists() {
     try {
       setLoading(true);
 
       const householdId = await getCurrentHouseholdId();
       if (!householdId) {
-        setItems([]);
+        setLists([]);
         return;
       }
 
       const { data, error } = await supabase
-        .from('shopping_recurring_templates')
+        .from('shopping_lists')
         .select(
-          'id, household_id, title, quantity, unit, category, notes, assigned_to, is_favorite, is_active, created_by, created_at, updated_at'
+          'id, household_id, name, color, icon, is_default, created_by, created_at, updated_at'
         )
         .eq('household_id', householdId)
-        .order('title', { ascending: true });
+        .order('created_at', { ascending: true });
 
       if (error) {
         Alert.alert('Load failed', error.message);
         return;
       }
 
-      setItems((data ?? []) as ShoppingRecurringTemplate[]);
+      setLists((data ?? []) as ShoppingList[]);
     } catch (error) {
       console.error(error);
-      Alert.alert('Load failed', 'Could not load recurring items.');
+      Alert.alert('Load failed', 'Could not load lists.');
     } finally {
       setLoading(false);
     }
@@ -55,45 +54,40 @@ export default function RecurringTemplatesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadTemplates();
+      loadLists();
     }, [])
   );
 
-  async function handleToggleActive(item: ShoppingRecurringTemplate) {
-    const { error } = await supabase
-      .from('shopping_recurring_templates')
-      .update({ is_active: !item.is_active })
-      .eq('id', item.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
+  async function handleDelete(list: ShoppingList) {
+    if (list.is_default) {
+      Alert.alert('Cannot delete', 'The default list cannot be deleted.');
       return;
     }
 
-    loadTemplates();
-  }
+    Alert.alert(
+      'Delete list?',
+      'This will also delete items in this list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase
+              .from('shopping_lists')
+              .delete()
+              .eq('id', list.id);
 
-  async function handleDelete(item: ShoppingRecurringTemplate) {
-    Alert.alert('Delete recurring item?', 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          const { error } = await supabase
-            .from('shopping_recurring_templates')
-            .delete()
-            .eq('id', item.id);
+            if (error) {
+              Alert.alert('Delete failed', error.message);
+              return;
+            }
 
-          if (error) {
-            Alert.alert('Delete failed', error.message);
-            return;
-          }
-
-          loadTemplates();
+            loadLists();
+          },
         },
-      },
-    ]);
+      ]
+    );
   }
 
   if (loading) {
@@ -107,16 +101,16 @@ export default function RecurringTemplatesScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <FlatList
-        data={items}
+        data={lists}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.headerRow}>
-            <Text style={styles.title}>Recurring Items</Text>
+            <Text style={styles.title}>Custom Lists</Text>
 
             <Pressable
               style={styles.addButton}
-              onPress={() => router.push('/shopping/recurring-new')}
+              onPress={() => router.push('/shopping/lists/new')}
             >
               <Text style={styles.addButtonText}>Add</Text>
             </Pressable>
@@ -127,45 +121,31 @@ export default function RecurringTemplatesScreen() {
             style={styles.card}
             onPress={() =>
               router.push({
-                pathname: '/shopping/recurring/[id]',
-                params: { id: item.id, returnTo: '/shopping/recurring' },
+                pathname: '/shopping/lists/[id]',
+                params: { id: item.id, returnTo: '/shopping/lists' },
               })
             }
           >
-            <Text style={styles.cardTitle}>{item.title}</Text>
+            <Text style={styles.cardTitle}>{item.name}</Text>
+            <Text style={styles.meta}>Color: {item.color || 'Default'}</Text>
+            <Text style={styles.meta}>Icon: {item.icon || 'None'}</Text>
             <Text style={styles.meta}>
-              Qty: {formatQuantity(item.quantity, item.unit) || 'None'}
-            </Text>
-            <Text style={styles.meta}>Category: {item.category || 'Other'}</Text>
-            <Text style={styles.meta}>
-              Favorite: {item.is_favorite ? 'Yes' : 'No'}
-            </Text>
-            <Text style={styles.meta}>
-              Active: {item.is_active ? 'Yes' : 'No'}
+              Type: {item.is_default ? 'Default list' : 'Custom list'}
             </Text>
 
-            <View style={styles.actionRow}>
-              <Pressable
-                style={styles.secondaryButton}
-                onPress={() => handleToggleActive(item)}
-              >
-                <Text style={styles.secondaryButtonText}>
-                  {item.is_active ? 'Deactivate' : 'Activate'}
-                </Text>
-              </Pressable>
-
+            {!item.is_default ? (
               <Pressable
                 style={styles.deleteButton}
                 onPress={() => handleDelete(item)}
               >
                 <Text style={styles.deleteButtonText}>Delete</Text>
               </Pressable>
-            </View>
+            ) : null}
           </Pressable>
         )}
         ListEmptyComponent={
           <View style={styles.card}>
-            <Text style={styles.meta}>No recurring items yet.</Text>
+            <Text style={styles.meta}>No custom lists yet.</Text>
           </View>
         }
       />
@@ -226,29 +206,13 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginBottom: 4,
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    marginTop: SPACING.sm,
-  },
-  secondaryButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: RADIUS.md,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  secondaryButtonText: {
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
   deleteButton: {
-    flex: 1,
+    marginTop: SPACING.sm,
+    alignSelf: 'flex-start',
     backgroundColor: COLORS.dangerSoft,
     borderRadius: RADIUS.md,
-    paddingVertical: 12,
-    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   deleteButtonText: {
     color: COLORS.danger,

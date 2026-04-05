@@ -16,10 +16,12 @@ import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { smartBack } from '../../lib/navigation';
 import { SHOPPING_CATEGORIES } from '../../lib/shopping';
+import type { ShoppingList } from '../../lib/shopping-lists';
 
 type ShoppingItem = {
   id: string;
   household_id: string;
+  list_id: string;
   title: string;
   quantity: number | null;
   unit: string | null;
@@ -46,6 +48,7 @@ export default function ShoppingItemDetailScreen() {
   const [saving, setSaving] = useState(false);
   const [item, setItem] = useState<ShoppingItem | null>(null);
   const [members, setMembers] = useState<MemberOption[]>([]);
+  const [lists, setLists] = useState<ShoppingList[]>([]);
 
   const [title, setTitle] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -53,6 +56,7 @@ export default function ShoppingItemDetailScreen() {
   const [category, setCategory] = useState('Other');
   const [notes, setNotes] = useState('');
   const [assignedTo, setAssignedTo] = useState<string>('');
+  const [listId, setListId] = useState<string>('');
 
   function handleBack() {
     smartBack({
@@ -70,7 +74,7 @@ export default function ShoppingItemDetailScreen() {
         const { data, error } = await supabase
           .from('shopping_list_items')
           .select(
-            'id, household_id, title, quantity, unit, category, notes, is_completed, is_favorite, assigned_to'
+            'id, household_id, list_id, title, quantity, unit, category, notes, is_completed, is_favorite, assigned_to'
           )
           .eq('id', id)
           .single();
@@ -88,17 +92,32 @@ export default function ShoppingItemDetailScreen() {
         setCategory(nextItem.category ?? 'Other');
         setNotes(nextItem.notes ?? '');
         setAssignedTo(nextItem.assigned_to ?? '');
+        setListId(nextItem.list_id ?? '');
 
-        const { data: namesData, error: namesError } = await supabase.rpc(
-          'get_shared_household_member_names'
-        );
+        const [{ data: namesData, error: namesError }, { data: listData, error: listError }] =
+          await Promise.all([
+            supabase.rpc('get_shared_household_member_names'),
+            supabase
+              .from('shopping_lists')
+              .select(
+                'id, household_id, name, color, icon, is_default, created_by, created_at, updated_at'
+              )
+              .eq('household_id', nextItem.household_id)
+              .order('created_at', { ascending: true }),
+          ]);
 
         if (namesError) {
           Alert.alert('Load failed', namesError.message);
           return;
         }
 
+        if (listError) {
+          Alert.alert('Load failed', listError.message);
+          return;
+        }
+
         setMembers((namesData ?? []) as MemberOption[]);
+        setLists((listData ?? []) as ShoppingList[]);
       } catch (error) {
         console.error(error);
         Alert.alert('Load failed', 'Could not load this item.');
@@ -118,6 +137,11 @@ export default function ShoppingItemDetailScreen() {
       return;
     }
 
+    if (!listId) {
+      Alert.alert('Missing list', 'Choose a list for this item.');
+      return;
+    }
+
     const parsedQuantity =
       quantity.trim() === '' ? null : Number.parseFloat(quantity.trim());
 
@@ -132,6 +156,7 @@ export default function ShoppingItemDetailScreen() {
       const { error } = await supabase
         .from('shopping_list_items')
         .update({
+          list_id: listId,
           title: title.trim(),
           quantity: parsedQuantity,
           unit: unit.trim() || null,
@@ -199,14 +224,24 @@ export default function ShoppingItemDetailScreen() {
   async function handleAddAgain() {
     if (!item) return;
 
+    const nextListId = listId || item.list_id;
+    if (!nextListId) {
+      Alert.alert('Add again failed', 'No shopping list selected.');
+      return;
+    }
+
+    const parsedQuantity =
+      quantity.trim() === '' ? null : Number.parseFloat(quantity.trim());
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
 
     const { error } = await supabase.from('shopping_list_items').insert({
       household_id: item.household_id,
+      list_id: nextListId,
       title: title.trim() || item.title,
-      quantity: quantity.trim() === '' ? null : Number.parseFloat(quantity.trim()),
+      quantity: parsedQuantity,
       unit: unit.trim() || null,
       category,
       notes: notes.trim() || null,
@@ -306,6 +341,29 @@ export default function ShoppingItemDetailScreen() {
         options={[...SHOPPING_CATEGORIES]}
         placeholder="Select category"
       />
+
+      <Text style={styles.label}>List</Text>
+      <View style={styles.memberWrap}>
+        {lists.map((list) => (
+          <Pressable
+            key={list.id}
+            style={[
+              styles.memberChip,
+              listId === list.id && styles.memberChipActive,
+            ]}
+            onPress={() => setListId(list.id)}
+          >
+            <Text
+              style={[
+                styles.memberChipText,
+                listId === list.id && styles.memberChipTextActive,
+              ]}
+            >
+              {list.name}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       <Text style={styles.label}>Assign to</Text>
       <View style={styles.memberWrap}>

@@ -13,6 +13,7 @@ function getRouteFallback(routeName: string): Href {
   if (routeName.startsWith('household/')) return '/profile';
   if (routeName.startsWith('tasks/')) return '/tasks';
   if (routeName.startsWith('records/')) return '/records';
+  if (routeName.startsWith('shopping/')) return '/shopping';
   return '/profile';
 }
 
@@ -69,7 +70,7 @@ export default function RootLayout() {
 
   return (
     <Stack
-      screenOptions={({ navigation, route }) => {
+      screenOptions={({ route }) => {
         const isTabsScreen = route.name === '(tabs)';
 
         const returnTo =
@@ -144,10 +145,7 @@ export default function RootLayout() {
         <Stack.Screen name="tasks/edit/[id]" options={{ title: 'Edit task' }} />
 
         <Stack.Screen name="records/providers/new" options={{ title: 'Add provider' }} />
-        <Stack.Screen
-  name="records/providers/index"
-  options={{ title: 'Providers' }}
-/>
+        <Stack.Screen name="records/providers/index" options={{ title: 'Providers' }} />
         <Stack.Screen
           name="records/providers/[id]/index"
           options={{ title: 'Provider details' }}
@@ -161,15 +159,19 @@ export default function RootLayout() {
           options={{ title: 'Edit service record' }}
         />
         <Stack.Screen
-  name="records/service-records/[id]"
-  options={{ title: 'Service record' }}
-/>
-<Stack.Screen name="shopping/new" options={{ title: 'Add item' }} />
-<Stack.Screen name="shopping/[id]" options={{ title: 'Item details' }} />
-<Stack.Screen name="shopping/recurring" options={{ title: 'Recurring items' }} />
-<Stack.Screen name="shopping/recurring-new" options={{ title: 'New recurring item' }} />
-<Stack.Screen name="shopping/pantry" options={{ title: 'Pantry' }} />
-<Stack.Screen name="shopping/pantry-new" options={{ title: 'New pantry item' }} />
+          name="records/service-records/[id]"
+          options={{ title: 'Service record' }}
+        />
+
+        <Stack.Screen name="shopping/new" options={{ title: 'Add item' }} />
+        <Stack.Screen name="shopping/[id]" options={{ title: 'Item details' }} />
+        <Stack.Screen name="shopping/recurring" options={{ title: 'Recurring items' }} />
+        <Stack.Screen name="shopping/recurring-new" options={{ title: 'New recurring item' }} />
+        <Stack.Screen name="shopping/pantry" options={{ title: 'Pantry' }} />
+        <Stack.Screen name="shopping/pantry-new" options={{ title: 'New pantry item' }} />
+        <Stack.Screen name="shopping/lists" options={{ title: 'Lists' }} />
+        <Stack.Screen name="shopping/lists/new" options={{ title: 'New list' }} />
+        <Stack.Screen name="shopping/lists/[id]" options={{ title: 'Edit list' }} />
       </Stack.Protected>
     </Stack>
   );
