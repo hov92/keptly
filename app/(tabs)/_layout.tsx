@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { Tabs, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
+
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
 
 export default function TabsLayout() {
@@ -85,6 +86,16 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+  name="shopping"
+  options={{
+    title: 'Shopping',
+    tabBarIcon: ({ color, size }) => (
+      <Ionicons name="cart-outline" size={size} color={color} />
+    ),
+  }}
+/>
+
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
@@ -94,12 +105,7 @@ export default function TabsLayout() {
         }}
       />
 
-      <Tabs.Screen
-  name="shopping"
-  options={{
-    title: 'Shopping',
-  }}
-/>
+      
     </Tabs>
 
     

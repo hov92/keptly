@@ -86,6 +86,35 @@ export default function ShoppingScreen() {
     loadItems();
   }
 
+  async function handleSaveAsRecurring(item: ShoppingListItem) {
+    if (!householdId) return;
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const { error } = await supabase.from('shopping_recurring_templates').insert({
+      household_id: householdId,
+      title: item.title,
+      quantity: item.quantity,
+      unit: item.unit,
+      category: item.category,
+      notes: item.notes,
+      assigned_to: item.assigned_to,
+      is_favorite: item.is_favorite ?? false,
+      is_active: true,
+      created_by: session?.user?.id ?? null,
+    });
+
+    if (error) {
+      Alert.alert('Save failed', error.message);
+      return;
+    }
+
+    Alert.alert('Saved', 'Recurring item created.');
+    loadItems();
+  }
+
   async function loadItems() {
     try {
       setLoading(true);
@@ -386,6 +415,22 @@ export default function ShoppingScreen() {
               </Pressable>
             </View>
 
+            <View style={styles.shortcutsRow}>
+              <Pressable
+                style={styles.shortcutButton}
+                onPress={() => router.push('/shopping/recurring')}
+              >
+                <Text style={styles.shortcutButtonText}>Recurring</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.shortcutButton}
+                onPress={() => router.push('/shopping/pantry')}
+              >
+                <Text style={styles.shortcutButtonText}>Pantry</Text>
+              </Pressable>
+            </View>
+
             <View style={styles.filterRow}>
               {[
                 ['all', 'All'],
@@ -628,6 +673,13 @@ export default function ShoppingScreen() {
                 >
                   <Text style={styles.smallActionText}>Add Again</Text>
                 </Pressable>
+
+                <Pressable
+                  style={styles.smallActionButton}
+                  onPress={() => handleSaveAsRecurring(item)}
+                >
+                  <Text style={styles.smallActionText}>Save as Recurring</Text>
+                </Pressable>
               </View>
             </Pressable>
           );
@@ -661,7 +713,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
     gap: SPACING.sm,
   },
   headerTextWrap: {
@@ -685,6 +737,23 @@ const styles = StyleSheet.create({
   },
   addButtonText: {
     color: COLORS.primaryText,
+    fontWeight: '700',
+  },
+  shortcutsRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  shortcutButton: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  shortcutButtonText: {
+    color: COLORS.primary,
     fontWeight: '700',
   },
   filterRow: {
@@ -866,6 +935,7 @@ const styles = StyleSheet.create({
   },
   bottomActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: SPACING.sm,
     marginTop: SPACING.sm,
   },
