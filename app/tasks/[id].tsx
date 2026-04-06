@@ -56,6 +56,7 @@ export default function TaskDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
+  const [updating, setUpdating] = useState(false);
 
   function handleBack() {
     smartBack({
@@ -65,72 +66,73 @@ export default function TaskDetailScreen() {
     });
   }
 
-  useEffect(() => {
-    async function loadTask() {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+  async function loadTask() {
+    try {
+      setLoading(true);
 
-        const userId = session?.user?.id ?? null;
-        setCurrentUserId(userId);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-        const permissions = await getActiveHouseholdPermissions();
-        setRole(permissions.role);
+      const userId = session?.user?.id ?? null;
+      setCurrentUserId(userId);
 
-        const { data, error } = await supabase
-          .from('tasks')
-          .select(
-            'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
-          )
-          .eq('id', id)
-          .single();
+      const permissions = await getActiveHouseholdPermissions();
+      setRole(permissions.role);
 
-        if (error) {
-          Alert.alert('Load failed', error.message);
-          setLoading(false);
-          return;
-        }
+      const { data, error } = await supabase
+        .from('tasks')
+        .select(
+          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
+        )
+        .eq('id', id)
+        .single();
 
-        const taskRow = data as TaskDetail;
+      if (error) {
+        Alert.alert('Load failed', error.message);
+        return;
+      }
 
-        if (permissions.role === 'child' && taskRow.assigned_to !== userId) {
-          Alert.alert('Restricted', 'You can only view tasks assigned to you.');
-          router.replace('/tasks');
-          return;
-        }
+      const taskRow = data as TaskDetail;
 
-        let assignedName: string | null = null;
+      if (permissions.role === 'child' && taskRow.assigned_to !== userId) {
+        Alert.alert('Restricted', 'You can only view tasks assigned to you.');
+        router.replace('/tasks');
+        return;
+      }
 
-        if (taskRow.assigned_to) {
-          const { data: namesData, error: namesError } = await supabase.rpc(
-            'get_shared_household_member_names'
+      let assignedName: string | null = null;
+
+      if (taskRow.assigned_to) {
+        const { data: namesData, error: namesError } = await supabase.rpc(
+          'get_shared_household_member_names'
+        );
+
+        if (!namesError) {
+          const nameMap = new Map(
+            ((namesData ?? []) as SharedMemberName[]).map((row) => [
+              row.id,
+              row.full_name,
+            ])
           );
 
-          if (!namesError) {
-            const nameMap = new Map(
-              ((namesData ?? []) as SharedMemberName[]).map((row) => [
-                row.id,
-                row.full_name,
-              ])
-            );
-
-            assignedName = nameMap.get(taskRow.assigned_to) ?? null;
-          }
+          assignedName = nameMap.get(taskRow.assigned_to) ?? null;
         }
-
-        setTask({
-          ...taskRow,
-          assigned_name: assignedName,
-        });
-      } catch (error) {
-        console.error(error);
-        Alert.alert('Load failed', 'Could not load task details.');
-      } finally {
-        setLoading(false);
       }
-    }
 
+      setTask({
+        ...taskRow,
+        assigned_name: assignedName,
+      });
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Load failed', 'Could not load task details.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
     if (id) {
       loadTask();
     }
@@ -166,63 +168,58 @@ export default function TaskDetailScreen() {
   async function handleToggleComplete() {
     if (!task) return;
 
-    if (role === 'child') {
-      if (task.assigned_to !== currentUserId) {
-        Alert.alert('Restricted', 'You can only complete tasks assigned to you.');
+    try {
+      setUpdating(true);
+
+      if (role === 'child') {
+        if (task.assigned_to !== currentUserId) {
+          Alert.alert('Restricted', 'You can only complete tasks assigned to you.');
+          return;
+        }
+
+        if (task.is_completed) {
+          Alert.alert('Restricted', 'You cannot reopen tasks.');
+          return;
+        }
+
+        const { error } = await supabase.rpc('mark_my_task_done', {
+          task_id: task.id,
+        });
+
+        if (error) {
+          Alert.alert('Update failed', error.message);
+          return;
+        }
+
+        await loadTask();
         return;
       }
 
-      if (task.is_completed) {
-        Alert.alert('Restricted', 'You cannot reopen tasks.');
+      if (!task.is_completed) {
+        await completeTaskWithRecurrence(task);
+        await loadTask();
         return;
       }
 
-      const { error } = await supabase.rpc('mark_my_task_done', {
-        task_id: task.id,
-      });
+      const { error } = await supabase
+        .from('tasks')
+        .update({ is_completed: false })
+        .eq('id', task.id);
 
       if (error) {
         Alert.alert('Update failed', error.message);
         return;
       }
 
-      setTask({
-        ...task,
-        is_completed: true,
-      });
-      return;
+      await loadTask();
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : 'Could not update task.';
+      Alert.alert('Update failed', message);
+    } finally {
+      setUpdating(false);
     }
-
-    if (!task.is_completed) {
-      try {
-        await completeTaskWithRecurrence(task);
-        setTask({
-          ...task,
-          is_completed: true,
-        });
-        return;
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Could not complete task.';
-        Alert.alert('Update failed', message);
-        return;
-      }
-    }
-
-    const { error } = await supabase
-      .from('tasks')
-      .update({ is_completed: false })
-      .eq('id', task.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
-      return;
-    }
-
-    setTask({
-      ...task,
-      is_completed: false,
-    });
   }
 
   if (loading) {
@@ -260,55 +257,67 @@ export default function TaskDetailScreen() {
           Status: {task.is_completed ? 'Done' : 'Open'}
         </Text>
 
+        {task.category ? (
+          <Text style={styles.meta}>Category: {task.category}</Text>
+        ) : null}
+
+        <Text style={styles.meta}>
+          Due: {task.due_date || 'No due date'}
+        </Text>
+
+        {task.recurrence ? (
+          <Text style={styles.meta}>
+            Repeats:{' '}
+            {formatRecurrenceLabel({
+              recurrence: task.recurrence,
+              recurrenceDays: task.recurrence_days,
+              recurrenceInterval: task.recurrence_interval,
+            })}
+          </Text>
+        ) : (
+          <Text style={styles.meta}>Repeats: No</Text>
+        )}
+
         <Text style={styles.meta}>
           Assigned to: {task.assigned_name || 'Unassigned'}
         </Text>
-
-        <Text style={styles.meta}>
-          Category: {task.category || 'None'}
-        </Text>
-
-        <Text style={styles.meta}>
-          Due date: {task.due_date || 'No date selected'}
-        </Text>
-
-        <Text style={styles.meta}>
-          Repeats:{' '}
-          {formatRecurrenceLabel({
-            recurrence: task.recurrence,
-            recurrenceDays: task.recurrence_days,
-            recurrenceInterval: task.recurrence_interval,
-          })}
-        </Text>
       </View>
 
-      <Pressable style={styles.primaryButton} onPress={handleToggleComplete}>
+      <Pressable
+        style={styles.primaryButton}
+        onPress={handleToggleComplete}
+        disabled={updating}
+      >
         <Text style={styles.primaryButtonText}>
-          {task.is_completed ? 'Done' : 'Mark Done'}
+          {updating
+            ? 'Saving...'
+            : task.is_completed
+            ? 'Mark Open'
+            : 'Mark Done'}
         </Text>
       </Pressable>
 
       {role !== 'child' ? (
-        <>
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() =>
-              router.push({
-                pathname: '/tasks/edit/[id]',
-                params: {
-                  id: task.id,
-                  returnTo: returnTo || '/tasks',
-                },
-              })
-            }
-          >
-            <Text style={styles.secondaryButtonText}>Edit Task</Text>
-          </Pressable>
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() =>
+            router.push({
+              pathname: '/tasks/edit/[id]',
+              params: {
+                id: task.id,
+                returnTo: returnTo ?? '/tasks',
+              },
+            })
+          }
+        >
+          <Text style={styles.secondaryButtonText}>Edit Task</Text>
+        </Pressable>
+      ) : null}
 
-          <Pressable style={styles.deleteButton} onPress={handleDelete}>
-            <Text style={styles.deleteButtonText}>Delete Task</Text>
-          </Pressable>
-        </>
+      {role !== 'child' ? (
+        <Pressable style={styles.deleteButton} onPress={handleDelete}>
+          <Text style={styles.deleteButtonText}>Delete Task</Text>
+        </Pressable>
       ) : null}
     </AppScreen>
   );
@@ -337,20 +346,20 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   title: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: COLORS.text,
     marginBottom: SPACING.sm,
+  },
+  meta: {
+    fontSize: 15,
+    color: COLORS.muted,
+    marginBottom: 6,
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: COLORS.text,
-  },
-  meta: {
-    fontSize: 15,
-    color: COLORS.muted,
-    marginBottom: 8,
   },
   primaryButton: {
     backgroundColor: COLORS.primary,

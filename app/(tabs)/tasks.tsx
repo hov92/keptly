@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,6 +57,7 @@ export default function TasksScreen() {
   const [activeFilter, setActiveFilter] = useState<TaskFilter>('all');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.filter === 'assigned') {
@@ -94,6 +95,7 @@ export default function TasksScreen() {
           'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
         )
         .eq('household_id', householdId)
+        .order('due_date', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -101,8 +103,10 @@ export default function TasksScreen() {
         return;
       }
 
-      const taskRows = ((data ?? []) as Task[]).filter(
-        (task) => !shouldHideFromDefaultList(task)
+      const rows = ((data ?? []) as Task[]).filter(
+        permissions.role === 'child'
+          ? (task) => task.assigned_to === userId && !shouldHideFromDefaultList(task)
+          : (task) => !shouldHideFromDefaultList(task)
       );
 
       const { data: namesData, error: namesError } = await supabase.rpc(
@@ -122,19 +126,16 @@ export default function TasksScreen() {
       );
 
       setTasks(
-        taskRows.map((task) => ({
+        rows.map((task) => ({
           ...task,
           assigned_name: task.assigned_to
             ? (nameMap.get(task.assigned_to) ?? null)
             : null,
         }))
       );
-
-      if (permissions.role === 'child') {
-        setActiveFilter('assigned');
-      }
     } catch (error) {
       console.error(error);
+      Alert.alert('Load failed', 'Could not load tasks.');
     } finally {
       setLoading(false);
     }
@@ -146,64 +147,75 @@ export default function TasksScreen() {
     }, [])
   );
 
-  async function toggleComplete(task: Task) {
+  const visibleTasks = useMemo(() => {
     if (role === 'child') {
-      if (task.assigned_to !== currentUserId) {
-        Alert.alert('Restricted', 'You can only complete tasks assigned to you.');
+      return tasks;
+    }
+
+    if (activeFilter === 'assigned' && currentUserId) {
+      return tasks.filter((task) => task.assigned_to === currentUserId);
+    }
+
+    return tasks;
+  }, [tasks, activeFilter, currentUserId, role]);
+
+  async function handleToggleComplete(task: Task) {
+    try {
+      setUpdatingTaskId(task.id);
+
+      if (role === 'child') {
+        if (task.assigned_to !== currentUserId) {
+          Alert.alert('Restricted', 'You can only complete tasks assigned to you.');
+          return;
+        }
+
+        if (task.is_completed) {
+          Alert.alert('Restricted', 'You cannot reopen tasks.');
+          return;
+        }
+
+        const { error } = await supabase.rpc('mark_my_task_done', {
+          task_id: task.id,
+        });
+
+        if (error) {
+          Alert.alert('Update failed', error.message);
+          return;
+        }
+
+        await loadTasks();
         return;
       }
 
-      if (task.is_completed) {
-        Alert.alert('Restricted', 'You cannot reopen tasks.');
+      if (!task.is_completed) {
+        await completeTaskWithRecurrence(task);
+        await loadTasks();
         return;
       }
 
-      const { error } = await supabase.rpc('mark_my_task_done', {
-        task_id: task.id,
-      });
+      const { error } = await supabase
+        .from('tasks')
+        .update({ is_completed: false })
+        .eq('id', task.id);
 
       if (error) {
         Alert.alert('Update failed', error.message);
         return;
       }
 
-      loadTasks();
-      return;
+      await loadTasks();
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : 'Could not update task.';
+      Alert.alert('Update failed', message);
+    } finally {
+      setUpdatingTaskId(null);
     }
-
-    if (!task.is_completed) {
-      try {
-        await completeTaskWithRecurrence(task);
-        loadTasks();
-        return;
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Could not complete task.';
-        Alert.alert('Update failed', message);
-        return;
-      }
-    }
-
-    const { error } = await supabase
-      .from('tasks')
-      .update({ is_completed: false })
-      .eq('id', task.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
-      return;
-    }
-
-    loadTasks();
   }
 
-  const visibleTasks =
-    activeFilter === 'assigned' || role === 'child'
-      ? tasks.filter((task) => task.assigned_to === currentUserId)
-      : tasks;
-
   function renderItem({ item }: { item: Task }) {
-    const childDone = role === 'child' && item.is_completed;
+    const isUpdating = updatingTaskId === item.id;
 
     return (
       <Pressable
@@ -232,10 +244,10 @@ export default function TasksScreen() {
             style={[
               styles.statusPill,
               item.is_completed ? styles.donePill : styles.openPill,
-              childDone && styles.statusDisabled,
+              isUpdating && styles.statusDisabled,
             ]}
-            onPress={() => toggleComplete(item)}
-            disabled={childDone}
+            onPress={() => handleToggleComplete(item)}
+            disabled={isUpdating}
           >
             <Text
               style={[
@@ -243,7 +255,7 @@ export default function TasksScreen() {
                 item.is_completed ? styles.doneText : styles.openText,
               ]}
             >
-              {item.is_completed ? 'Done' : 'Open'}
+              {isUpdating ? 'Saving...' : item.is_completed ? 'Done' : 'Open'}
             </Text>
           </Pressable>
         </View>

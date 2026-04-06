@@ -43,6 +43,10 @@ export default function ShoppingScreen() {
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [clearingCompleted, setClearingCompleted] = useState(false);
 
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkWorking, setBulkWorking] = useState(false);
+
   async function loadData() {
     try {
       setLoading(true);
@@ -158,6 +162,8 @@ export default function ShoppingScreen() {
 
     if (!item.is_completed) {
       updates.last_purchased_at = new Date().toISOString();
+    } else {
+      updates.last_purchased_at = null;
     }
 
     const { error } = await supabase
@@ -289,6 +295,193 @@ export default function ShoppingScreen() {
       }));
   }, [filteredItems]);
 
+  const visibleItemIds = useMemo(
+    () => filteredItems.map((item) => item.id),
+    [filteredItems]
+  );
+
+  const selectedItems = useMemo(
+    () => filteredItems.filter((item) => selectedIds.includes(item.id)),
+    [filteredItems, selectedIds]
+  );
+
+  const selectedCount = selectedIds.length;
+
+  function enterSelectMode(initialId?: string) {
+    setIsSelecting(true);
+    if (initialId) {
+      setSelectedIds((prev) =>
+        prev.includes(initialId) ? prev : [...prev, initialId]
+      );
+    }
+  }
+
+  function exitSelectMode() {
+    setIsSelecting(false);
+    setSelectedIds([]);
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+  }
+
+  function handleSelectAllVisible() {
+    setSelectedIds(visibleItemIds);
+  }
+
+  function handleClearSelection() {
+    setSelectedIds([]);
+  }
+
+  async function handleBulkComplete() {
+    if (selectedCount === 0) return;
+
+    try {
+      setBulkWorking(true);
+
+      const now = new Date().toISOString();
+      const updates = selectedItems.map((item) =>
+        supabase
+          .from('shopping_list_items')
+          .update({
+            is_completed: true,
+            last_purchased_at: item.is_completed ? item.last_purchased_at ?? null : now,
+          })
+          .eq('id', item.id)
+      );
+
+      const results = await Promise.all(updates);
+      const failed = results.find((result) => result.error);
+
+      if (failed?.error) {
+        Alert.alert('Bulk update failed', failed.error.message);
+        return;
+      }
+
+      exitSelectMode();
+      loadData();
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Bulk update failed', 'Could not complete selected items.');
+    } finally {
+      setBulkWorking(false);
+    }
+  }
+
+  async function handleBulkFavorite() {
+    if (selectedCount === 0) return;
+
+    try {
+      setBulkWorking(true);
+
+      const updates = selectedItems.map((item) =>
+        supabase
+          .from('shopping_list_items')
+          .update({ is_favorite: true })
+          .eq('id', item.id)
+      );
+
+      const results = await Promise.all(updates);
+      const failed = results.find((result) => result.error);
+
+      if (failed?.error) {
+        Alert.alert('Bulk update failed', failed.error.message);
+        return;
+      }
+
+      exitSelectMode();
+      loadData();
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Bulk update failed', 'Could not favorite selected items.');
+    } finally {
+      setBulkWorking(false);
+    }
+  }
+
+  async function handleBulkDeleteConfirmed() {
+    try {
+      setBulkWorking(true);
+
+      const { error } = await supabase
+        .from('shopping_list_items')
+        .delete()
+        .in('id', selectedIds);
+
+      if (error) {
+        Alert.alert('Bulk delete failed', error.message);
+        return;
+      }
+
+      exitSelectMode();
+      loadData();
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Bulk delete failed', 'Could not delete selected items.');
+    } finally {
+      setBulkWorking(false);
+    }
+  }
+
+  function handleBulkDelete() {
+    if (selectedCount === 0) return;
+
+    Alert.alert(
+      `Delete ${selectedCount} item${selectedCount === 1 ? '' : 's'}?`,
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: handleBulkDeleteConfirmed,
+        },
+      ]
+    );
+  }
+
+  function handleBulkMove() {
+    if (selectedCount === 0) return;
+
+    const moveTargets = lists.filter((list) => list.id !== activeListId);
+    if (moveTargets.length === 0) {
+      Alert.alert('No other lists', 'Create another list first.');
+      return;
+    }
+
+    Alert.alert('Move selected items', 'Choose a destination list.', [
+      ...moveTargets.map((list) => ({
+        text: list.name,
+        onPress: async () => {
+          try {
+            setBulkWorking(true);
+
+            const { error } = await supabase
+              .from('shopping_list_items')
+              .update({ list_id: list.id })
+              .in('id', selectedIds);
+
+            if (error) {
+              Alert.alert('Move failed', error.message);
+              return;
+            }
+
+            exitSelectMode();
+            loadData();
+          } catch (error) {
+            console.error(error);
+            Alert.alert('Move failed', 'Could not move selected items.');
+          } finally {
+            setBulkWorking(false);
+          }
+        },
+      })),
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.center} edges={['top']}>
@@ -314,20 +507,26 @@ export default function ShoppingScreen() {
                 </Text>
               </View>
 
-              <Pressable
-                style={styles.addButton}
-                onPress={() =>
-                  router.push({
-                    pathname: '/shopping/new',
-                    params: {
-                      listId: activeListId ?? '',
-                      returnTo: '/(tabs)/shopping',
-                    },
-                  })
-                }
-              >
-                <Text style={styles.addButtonText}>Add</Text>
-              </Pressable>
+              {isSelecting ? (
+                <Pressable style={styles.cancelButton} onPress={exitSelectMode}>
+                  <Text style={styles.cancelButtonText}>Done</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.addButton}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/shopping/new',
+                      params: {
+                        listId: activeListId ?? '',
+                        returnTo: '/(tabs)/shopping',
+                      },
+                    })
+                  }
+                >
+                  <Text style={styles.addButtonText}>Add</Text>
+                </Pressable>
+              )}
             </View>
 
             <View style={styles.listHeaderRow}>
@@ -348,7 +547,10 @@ export default function ShoppingScreen() {
                             styles.listChip,
                             isActive && styles.listChipActive,
                           ]}
-                          onPress={() => setActiveListId(list.id)}
+                          onPress={() => {
+                            setActiveListId(list.id);
+                            exitSelectMode();
+                          }}
                         >
                           <View
                             style={[
@@ -393,7 +595,10 @@ export default function ShoppingScreen() {
                     styles.filterChip,
                     activeFilter === value && styles.filterChipActive,
                   ]}
-                  onPress={() => setActiveFilter(value as ShoppingFilter)}
+                  onPress={() => {
+                    setActiveFilter(value as ShoppingFilter);
+                    exitSelectMode();
+                  }}
                 >
                   <Text
                     style={[
@@ -407,17 +612,116 @@ export default function ShoppingScreen() {
               ))}
             </View>
 
-            {completedCount > 0 ? (
-              <Pressable
-                style={styles.clearButton}
-                onPress={handleClearCompleted}
-                disabled={clearingCompleted}
-              >
-                <Text style={styles.clearButtonText}>
-                  {clearingCompleted ? 'Clearing...' : 'Clear Completed'}
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryText}>
+                {activeList?.name || 'Current list'} • {filteredItems.length} visible
+              </Text>
+
+              {completedCount > 0 && !isSelecting ? (
+                <Text style={styles.summaryText}>
+                  {completedCount} completed
                 </Text>
-              </Pressable>
-            ) : null}
+              ) : null}
+            </View>
+
+            {isSelecting ? (
+              <View style={styles.bulkPanel}>
+                <View style={styles.bulkHeaderRow}>
+                  <Text style={styles.bulkTitle}>
+                    {selectedCount} selected
+                  </Text>
+
+                  <View style={styles.bulkMiniActions}>
+                    <Pressable
+                      style={styles.bulkMiniButton}
+                      onPress={handleSelectAllVisible}
+                    >
+                      <Text style={styles.bulkMiniButtonText}>Select All</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.bulkMiniButton}
+                      onPress={handleClearSelection}
+                    >
+                      <Text style={styles.bulkMiniButtonText}>Clear</Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.bulkActionsWrap}>
+                  <Pressable
+                    style={[
+                      styles.bulkActionButton,
+                      (selectedCount === 0 || bulkWorking) &&
+                        styles.bulkActionButtonDisabled,
+                    ]}
+                    disabled={selectedCount === 0 || bulkWorking}
+                    onPress={handleBulkComplete}
+                  >
+                    <Text style={styles.bulkActionButtonText}>
+                      {bulkWorking ? 'Working...' : 'Complete'}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.bulkActionButton,
+                      (selectedCount === 0 || bulkWorking) &&
+                        styles.bulkActionButtonDisabled,
+                    ]}
+                    disabled={selectedCount === 0 || bulkWorking}
+                    onPress={handleBulkFavorite}
+                  >
+                    <Text style={styles.bulkActionButtonText}>Favorite</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.bulkActionButton,
+                      (selectedCount === 0 || bulkWorking) &&
+                        styles.bulkActionButtonDisabled,
+                    ]}
+                    disabled={selectedCount === 0 || bulkWorking}
+                    onPress={handleBulkMove}
+                  >
+                    <Text style={styles.bulkActionButtonText}>Move</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.bulkDeleteButton,
+                      (selectedCount === 0 || bulkWorking) &&
+                        styles.bulkActionButtonDisabled,
+                    ]}
+                    disabled={selectedCount === 0 || bulkWorking}
+                    onPress={handleBulkDelete}
+                  >
+                    <Text style={styles.bulkDeleteButtonText}>Delete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.topActionRow}>
+                <Pressable
+                  style={styles.selectModeButton}
+                  onPress={() => enterSelectMode()}
+                >
+                  <Text style={styles.selectModeButtonText}>Select</Text>
+                </Pressable>
+
+                {completedCount > 0 ? (
+                  <Pressable
+                    style={styles.clearButton}
+                    onPress={handleClearCompleted}
+                    disabled={clearingCompleted}
+                  >
+                    <Text style={styles.clearButtonText}>
+                      {clearingCompleted ? 'Clearing...' : 'Clear Completed'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            )}
           </View>
         }
         renderSectionHeader={({ section }) => (
@@ -425,11 +729,18 @@ export default function ShoppingScreen() {
         )}
         renderItem={({ item }) => {
           const quantityLabel = formatQuantity(item.quantity, item.unit);
+          const isSelected = selectedIds.includes(item.id);
 
           return (
             <Pressable
-              style={styles.card}
-              onPress={() =>
+              style={[styles.card, isSelected && styles.cardSelected]}
+              onLongPress={() => enterSelectMode(item.id)}
+              onPress={() => {
+                if (isSelecting) {
+                  toggleSelected(item.id);
+                  return;
+                }
+
                 router.push({
                   pathname: '/shopping/[id]',
                   params: {
@@ -437,33 +748,49 @@ export default function ShoppingScreen() {
                     listId: activeListId ?? '',
                     returnTo: '/(tabs)/shopping',
                   },
-                })
-              }
+                });
+              }}
             >
               <View style={styles.cardTop}>
                 <Pressable
                   style={[
                     styles.checkButton,
                     item.is_completed && styles.checkButtonDone,
+                    isSelected && styles.checkButtonSelected,
                   ]}
-                  onPress={() => handleToggleComplete(item)}
+                  onPress={() => {
+                    if (isSelecting) {
+                      toggleSelected(item.id);
+                      return;
+                    }
+                    handleToggleComplete(item);
+                  }}
                 >
                   <Text
                     style={[
                       styles.checkButtonText,
                       item.is_completed && styles.checkButtonTextDone,
+                      isSelected && styles.checkButtonTextSelected,
                     ]}
                   >
-                    {item.is_completed ? 'Done' : 'Open'}
+                    {isSelecting
+                      ? isSelected
+                        ? 'Selected'
+                        : 'Select'
+                      : item.is_completed
+                      ? 'Done'
+                      : 'Open'}
                   </Text>
                 </Pressable>
 
-                <Pressable
-                  style={styles.deleteButton}
-                  onPress={() => handleDelete(item)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </Pressable>
+                {!isSelecting ? (
+                  <Pressable
+                    style={styles.deleteButton}
+                    onPress={() => handleDelete(item)}
+                  >
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </Pressable>
+                ) : null}
               </View>
 
               <Text
@@ -479,14 +806,22 @@ export default function ShoppingScreen() {
                 <Text style={styles.meta}>Qty: {quantityLabel}</Text>
               ) : null}
 
-              {item.notes ? <Text style={styles.meta}>Notes: {item.notes}</Text> : null}
+              {item.notes ? (
+                <Text style={styles.meta}>Notes: {item.notes}</Text>
+              ) : null}
 
               <Text style={styles.meta}>
                 Added by: {item.created_by_name || 'Unknown'}
               </Text>
 
               {item.assigned_to_name ? (
-                <Text style={styles.meta}>Assigned to: {item.assigned_to_name}</Text>
+                <Text style={styles.meta}>
+                  Assigned to: {item.assigned_to_name}
+                </Text>
+              ) : null}
+
+              {item.is_favorite ? (
+                <Text style={styles.favoriteMeta}>Favorite</Text>
               ) : null}
             </Pressable>
           );
@@ -553,6 +888,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
+  cancelButton: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    minWidth: 92,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: COLORS.primary,
+    fontWeight: '700',
+    fontSize: 16,
+  },
   listHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -578,8 +928,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
   },
   listChipActive: {
     backgroundColor: COLORS.primary,
@@ -593,7 +943,7 @@ const styles = StyleSheet.create({
   listChipText: {
     color: COLORS.text,
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
   listChipTextActive: {
     color: COLORS.primaryText,
@@ -602,16 +952,16 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   manageListsButtonText: {
     color: COLORS.primary,
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
   filterRow: {
     flexDirection: 'row',
@@ -639,6 +989,35 @@ const styles = StyleSheet.create({
   filterChipTextActive: {
     color: COLORS.primaryText,
   },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  summaryText: {
+    color: COLORS.muted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  topActionRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    alignItems: 'center',
+  },
+  selectModeButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  selectModeButtonText: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
   clearButton: {
     alignSelf: 'flex-start',
     backgroundColor: COLORS.dangerSoft,
@@ -649,6 +1028,68 @@ const styles = StyleSheet.create({
   clearButtonText: {
     color: COLORS.danger,
     fontWeight: '700',
+  },
+  bulkPanel: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+  },
+  bulkHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  bulkTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  bulkMiniActions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  bulkMiniButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  bulkMiniButtonText: {
+    color: COLORS.primary,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  bulkActionsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  bulkActionButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bulkActionButtonText: {
+    color: COLORS.primaryText,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  bulkDeleteButton: {
+    backgroundColor: COLORS.dangerSoft,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bulkDeleteButtonText: {
+    color: COLORS.danger,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  bulkActionButtonDisabled: {
+    opacity: 0.55,
   },
   sectionHeader: {
     fontSize: 18,
@@ -662,6 +1103,12 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.lg,
     padding: SPACING.md,
     marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  cardSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#F2FAF8',
   },
   cardTop: {
     flexDirection: 'row',
@@ -680,6 +1127,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.accentSoft,
     borderColor: COLORS.accentSoft,
   },
+  checkButtonSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
   checkButtonText: {
     color: COLORS.text,
     fontSize: 12,
@@ -687,6 +1138,9 @@ const styles = StyleSheet.create({
   },
   checkButtonTextDone: {
     color: COLORS.accent,
+  },
+  checkButtonTextSelected: {
+    color: COLORS.primaryText,
   },
   deleteButton: {
     backgroundColor: COLORS.dangerSoft,
@@ -713,5 +1167,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.muted,
     marginBottom: 4,
+  },
+  favoriteMeta: {
+    fontSize: 13,
+    color: COLORS.accent,
+    fontWeight: '700',
+    marginTop: 4,
   },
 });

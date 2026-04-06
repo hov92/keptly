@@ -17,6 +17,7 @@ import { getHouseholdMemberOptions } from '../../lib/household-members';
 import { AppScreen } from '../../components/app-screen';
 import { FormInput } from '../../components/form-input';
 import { DateField } from '../../components/date-field';
+import { FormScreenHeader } from '../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../constants/theme';
 import { ensureRecurringTaskHorizon } from '../../lib/task-recurrence';
 import {
@@ -196,6 +197,11 @@ export default function NewTaskScreen() {
 
   return (
     <AppScreen>
+      <FormScreenHeader
+        title="Add task"
+        subtitle="Create a task for your household."
+      />
+
       <FormInput
         placeholder="Task title"
         value={title}

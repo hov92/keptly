@@ -1,15 +1,10 @@
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Alert, Pressable, StyleSheet, Text } from 'react-native';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 
+import { getNoHouseholdRoute } from '../../../lib/no-household-route';
 import { supabase } from '../../../lib/supabase';
+import { getCurrentHouseholdId } from '../../../lib/household';
 import { CategoryPicker } from '../../../components/category-picker';
 import { AssigneePicker } from '../../../components/assignee-picker';
 import { WeekdayPicker, WeekdayCode } from '../../../components/weekday-picker';
@@ -22,18 +17,24 @@ import { getHouseholdMemberOptions } from '../../../lib/household-members';
 import { AppScreen } from '../../../components/app-screen';
 import { FormInput } from '../../../components/form-input';
 import { DateField } from '../../../components/date-field';
+import { FormScreenHeader } from '../../../components/form-screen-header';
 import { COLORS, RADIUS } from '../../../constants/theme';
-import { getActiveHouseholdPermissions } from '../../../lib/permissions';
-import { ensureRecurringTaskHorizon } from '../../../lib/task-recurrence';
-import {
-  cancelScheduledNotification,
-  scheduleTaskDueReminder,
-  scheduleTaskOverdueReminder,
-} from '../../../lib/notifications';
 
 type AssigneeOption = {
   label: string;
   value: string;
+};
+
+type LoadedTask = {
+  id: string;
+  household_id: string;
+  title: string;
+  category: string | null;
+  due_date: string | null;
+  assigned_to: string | null;
+  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  recurrence_days: WeekdayCode[] | null;
+  recurrence_interval: number | null;
 };
 
 const RECURRENCE_OPTIONS = [
@@ -46,25 +47,8 @@ const RECURRENCE_OPTIONS = [
 
 type RecurrenceValue = (typeof RECURRENCE_OPTIONS)[number];
 
-type SavedTask = {
-  id: string;
-  household_id: string;
-  title: string;
-  category: string | null;
-  due_date: string | null;
-  is_completed: boolean;
-  assigned_to: string | null;
-  created_by: string | null;
-  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
-  recurrence_days: WeekdayCode[] | null;
-  recurrence_interval: number | null;
-  parent_task_id: string | null;
-  due_notification_id: string | null;
-  overdue_notification_id: string | null;
-};
-
 export default function EditTaskScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
@@ -86,85 +70,69 @@ export default function EditTaskScreen() {
   ]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
 
   const isOther = category === 'Other';
   const isWeekdays = recurrence === 'weekdays';
   const showInterval =
-    recurrence === 'daily' ||
-    recurrence === 'weekly' ||
-    recurrence === 'monthly';
+    recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly';
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        const permissions = await getActiveHouseholdPermissions();
-        setRole(permissions.role);
+    getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
+    getHouseholdMemberOptions().then(setAssigneeOptions).catch(console.error);
+  }, []);
 
-        if (permissions.role === 'child') {
-          Alert.alert('Restricted', 'You cannot edit tasks.');
-          router.replace('/(tabs)/tasks');
+  useEffect(() => {
+    async function loadTask() {
+      try {
+        setLoading(true);
+
+        const householdId = await getCurrentHouseholdId();
+        if (!householdId || householdId === 'null' || householdId === 'undefined') {
+          const route = await getNoHouseholdRoute();
+          router.replace(route);
           return;
         }
-
-        const [mergedCategories, memberOptions] = await Promise.all([
-          getMergedTaskCategories(TASK_CATEGORIES),
-          getHouseholdMemberOptions(),
-        ]);
-
-        setCategoryOptions(mergedCategories);
-        setAssigneeOptions(memberOptions);
 
         const { data, error } = await supabase
           .from('tasks')
           .select(
-            'title, category, due_date, assigned_to, recurrence, recurrence_days, recurrence_interval'
+            'id, household_id, title, category, due_date, assigned_to, recurrence, recurrence_days, recurrence_interval'
           )
           .eq('id', id)
           .single();
 
         if (error) {
           Alert.alert('Load failed', error.message);
-          router.back();
           return;
         }
 
-        const loadedCategory = data.category ?? '';
+        const task = data as LoadedTask;
 
-        if (loadedCategory && !mergedCategories.includes(loadedCategory)) {
-          setCategory('Other');
-          setCustomCategory(loadedCategory);
-        } else {
-          setCategory(loadedCategory);
-          setCustomCategory('');
-        }
+        const mergedCategories = await getMergedTaskCategories(TASK_CATEGORIES);
+        const inPreset = task.category ? mergedCategories.includes(task.category) : false;
 
-        setTitle(data.title ?? '');
-        setDueDate(data.due_date ?? null);
-        setAssignedTo(data.assigned_to ?? '');
-        setRecurrence((data.recurrence ?? 'None') as RecurrenceValue);
-        setRecurrenceInterval(String(data.recurrence_interval ?? 1));
-
-        const loadedDays = Array.isArray(data.recurrence_days)
-          ? (data.recurrence_days as WeekdayCode[])
-          : [];
-
+        setTitle(task.title ?? '');
+        setCategory(task.category && !inPreset ? 'Other' : task.category ?? '');
+        setCustomCategory(task.category && !inPreset ? task.category : '');
+        setDueDate(task.due_date ?? null);
+        setAssignedTo(task.assigned_to ?? '');
+        setRecurrence((task.recurrence ?? 'None') as RecurrenceValue);
+        setRecurrenceInterval(String(task.recurrence_interval ?? 1));
         setRecurrenceDays(
-          loadedDays.length > 0
-            ? loadedDays
+          task.recurrence_days && task.recurrence_days.length > 0
+            ? task.recurrence_days
             : ['mon', 'tue', 'wed', 'thu', 'fri']
         );
       } catch (error) {
         console.error(error);
         Alert.alert('Load failed', 'Could not load task.');
-        router.back();
       } finally {
         setLoading(false);
       }
     }
 
     if (id) {
-      loadData();
+      loadTask();
     }
   }, [id]);
 
@@ -191,11 +159,6 @@ export default function EditTaskScreen() {
     try {
       setSaving(true);
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      const userId = session?.user?.id ?? null;
       const finalCategory = isOther ? customCategory.trim() : category || null;
 
       const { error } = await supabase
@@ -217,54 +180,20 @@ export default function EditTaskScreen() {
         return;
       }
 
-      const { data: savedTask, error: savedTaskError } = await supabase
-        .from('tasks')
-        .select(
-          'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id, due_notification_id, overdue_notification_id'
-        )
-        .eq('id', id)
-        .single();
+      if (isOther && finalCategory) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (savedTaskError) {
-        Alert.alert('Save failed', savedTaskError.message);
-        return;
+        if (session?.user?.id) {
+          await saveCustomTaskCategory(finalCategory, session.user.id);
+        }
       }
 
-      await cancelScheduledNotification(savedTask.due_notification_id);
-      await cancelScheduledNotification(savedTask.overdue_notification_id);
-
-      const dueNotificationId = await scheduleTaskDueReminder({
-        taskId: savedTask.id,
-        title: savedTask.title,
-        dueDate: savedTask.due_date,
-      });
-
-      const overdueNotificationId = await scheduleTaskOverdueReminder({
-        taskId: savedTask.id,
-        title: savedTask.title,
-        dueDate: savedTask.due_date,
-      });
-
-      await supabase
-        .from('tasks')
-        .update({
-          due_notification_id: dueNotificationId ?? null,
-          overdue_notification_id: overdueNotificationId ?? null,
-        })
-        .eq('id', savedTask.id);
-
-      if (savedTask?.recurrence) {
-        await ensureRecurringTaskHorizon(savedTask as SavedTask);
-      }
-
-      if (isOther && finalCategory && userId) {
-        await saveCustomTaskCategory(finalCategory, userId);
-      }
-
-      router.back();
+      router.replace(returnTo as Href || '/tasks');
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Something went wrong saving the task.');
+      Alert.alert('Save failed', 'Could not update task.');
     } finally {
       setSaving(false);
     }
@@ -272,18 +201,22 @@ export default function EditTaskScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
+      <AppScreen>
+        <FormScreenHeader
+          title="Edit task"
+          subtitle="Loading task details..."
+        />
+      </AppScreen>
     );
-  }
-
-  if (role === 'child') {
-    return null;
   }
 
   return (
     <AppScreen>
+      <FormScreenHeader
+        title="Edit task"
+        subtitle="Update the task details and recurrence."
+      />
+
       <FormInput
         placeholder="Task title"
         value={title}
@@ -345,7 +278,7 @@ export default function EditTaskScreen() {
 
       <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
         <Text style={styles.buttonText}>
-          {saving ? 'Saving...' : 'Save Changes'}
+          {saving ? 'Saving...' : 'Save Task'}
         </Text>
       </Pressable>
     </AppScreen>
@@ -353,12 +286,6 @@ export default function EditTaskScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   button: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.md,
