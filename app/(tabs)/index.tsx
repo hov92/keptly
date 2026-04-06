@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 
 import { Screen } from '../../components/screen';
 import { supabase } from '../../lib/supabase';
@@ -100,71 +100,153 @@ function formatActivityTime(value: string) {
   }
 }
 
-function getActivityLabel(item: HouseholdActivityFeedItem) {
+function getActivityPrimaryLabel(item: HouseholdActivityFeedItem) {
   const actor = item.actor_name || 'System';
   const target = item.target_name || 'someone';
-  const details = item.details ?? {};
 
-  if (item.action === 'task_created') {
-    return `${actor} created a task`;
+  if (item.action === 'task_created') return `${actor} created a task`;
+  if (item.action === 'task_completed') return `${actor} completed a task`;
+  if (item.action === 'task_assigned') return `${actor} assigned a task to ${target}`;
+  if (item.action === 'shopping_item_added') return `${actor} added a shopping item`;
+  if (item.action === 'shopping_item_completed') return `${actor} completed a shopping item`;
+  if (item.action === 'shopping_item_deleted') return `${actor} deleted a shopping item`;
+  if (item.action === 'pantry_item_added') return `${actor} added a pantry item`;
+  if (item.action === 'pantry_item_updated') return `${actor} updated a pantry item`;
+  if (item.action === 'provider_added') return `${actor} added a provider`;
+  if (item.action === 'service_record_added') return `${actor} added a service record`;
+  if (item.action === 'member_invited') return `${actor} invited ${target}`;
+  if (item.action === 'member_joined') return `${actor} joined the household`;
+
+  return `${actor} ${item.action.replaceAll('_', ' ')}`;
+}
+
+function getStringDetail(
+  details: Record<string, unknown> | null,
+  keys: string[]
+) {
+  if (!details) return null;
+
+  for (const key of keys) {
+    const value = details[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
   }
 
-  if (item.action === 'task_completed') {
-    return `${actor} completed a task`;
+  return null;
+}
+
+function getActivitySecondaryLabel(item: HouseholdActivityFeedItem) {
+  const details = item.details ?? null;
+
+  const title = getStringDetail(details, [
+    'title',
+    'task_title',
+    'shopping_title',
+    'item_title',
+    'provider_name',
+    'service_title',
+    'name',
+  ]);
+
+  const category = getStringDetail(details, ['category']);
+  const listName = getStringDetail(details, ['list_name']);
+  const providerName = getStringDetail(details, ['provider_name']);
+  const note = getStringDetail(details, ['note', 'notes']);
+
+  if (item.action.startsWith('task_')) {
+    if (title && category) return `${title} • ${category}`;
+    if (title) return title;
   }
 
-  if (item.action === 'task_assigned') {
-    return `${actor} assigned a task to ${target}`;
+  if (item.action.startsWith('shopping_')) {
+    if (title && listName) return `${title} • ${listName}`;
+    if (title) return title;
   }
 
-  if (item.action === 'shopping_item_added') {
-    return `${actor} added a shopping item`;
-  }
-
-  if (item.action === 'shopping_item_completed') {
-    return `${actor} completed a shopping item`;
-  }
-
-  if (item.action === 'shopping_item_deleted') {
-    return `${actor} deleted a shopping item`;
-  }
-
-  if (item.action === 'pantry_item_added') {
-    return `${actor} added a pantry item`;
-  }
-
-  if (item.action === 'pantry_item_updated') {
-    return `${actor} updated a pantry item`;
-  }
-
-  if (item.action === 'provider_added') {
-    return `${actor} added a provider`;
+  if (item.action.startsWith('pantry_')) {
+    if (title && category) return `${title} • ${category}`;
+    if (title) return title;
   }
 
   if (item.action === 'service_record_added') {
-    return `${actor} added a service record`;
+    if (title && providerName) return `${title} • ${providerName}`;
+    if (title) return title;
   }
 
-  if (item.action === 'member_invited') {
-    return `${actor} invited ${target}`;
+  if (item.action === 'provider_added' && title) {
+    return title;
   }
 
-  if (item.action === 'member_joined') {
-    return `${actor} joined the household`;
+  if (note) return note;
+
+  return null;
+}
+
+function getActivityTarget(item: HouseholdActivityFeedItem): Href | null {
+  const details = item.details ?? null;
+  if (!details) return null;
+
+  const getId = (keys: string[]) => getStringDetail(details, keys);
+
+  const taskId = getId(['task_id', 'id']);
+  if (taskId && item.action.startsWith('task_')) {
+    return {
+      pathname: '/tasks/[id]',
+      params: {
+        id: taskId,
+        returnTo: '/(tabs)',
+      },
+    } as Href;
   }
 
-  const title =
-    typeof details.title === 'string'
-      ? details.title
-      : typeof details.name === 'string'
-      ? details.name
-      : null;
-
-  if (title) {
-    return `${actor} ${item.action.replaceAll('_', ' ')}: ${title}`;
+  const shoppingId = getId(['shopping_item_id', 'item_id', 'id']);
+  if (
+    shoppingId &&
+    (item.action.startsWith('shopping_') ||
+      item.action === 'shopping_item_added')
+  ) {
+    return {
+      pathname: '/shopping/[id]',
+      params: {
+        id: shoppingId,
+        returnTo: '/(tabs)/shopping',
+      },
+    } as Href;
   }
 
-  return `${actor} ${item.action.replaceAll('_', ' ')}`;
+  const pantryId = getId(['pantry_item_id', 'item_id', 'id']);
+  if (pantryId && item.action.startsWith('pantry_')) {
+    return {
+      pathname: '/shopping/pantry/[id]',
+      params: {
+        id: pantryId,
+        returnTo: '/shopping/pantry',
+      },
+    } as Href;
+  }
+
+  const serviceRecordId = getId(['service_record_id', 'record_id', 'id']);
+  if (serviceRecordId && item.action === 'service_record_added') {
+    return {
+      pathname: '/records/service-records/[id]',
+      params: {
+        id: serviceRecordId,
+        returnTo: '/records/providers',
+      },
+    } as Href;
+  }
+
+  const providerId = getId(['provider_id', 'id']);
+  if (providerId && item.action === 'provider_added') {
+    return {
+      pathname: '/records/providers/[id]',
+      params: {
+        id: providerId,
+        returnTo: '/records/providers',
+      },
+    } as Href;
+  }
+
+  return null;
 }
 
 export default function HomeScreen() {
@@ -239,22 +321,18 @@ export default function HomeScreen() {
         console.error(householdError.message);
         return;
       }
-
       if (tasksError) {
         console.error(tasksError.message);
         return;
       }
-
       if (shoppingError) {
         console.error(shoppingError.message);
         return;
       }
-
       if (pantryError) {
         console.error(pantryError.message);
         return;
       }
-
       if (namesError) {
         console.error(namesError.message);
         return;
@@ -506,11 +584,33 @@ export default function HomeScreen() {
   }
 
   function renderActivityCard(item: HouseholdActivityFeedItem) {
+    const secondary = getActivitySecondaryLabel(item);
+    const target = getActivityTarget(item);
+
+    const content = (
+      <>
+        <Text style={styles.infoCardTitle}>{getActivityPrimaryLabel(item)}</Text>
+        {secondary ? <Text style={styles.infoCardMeta}>{secondary}</Text> : null}
+        <Text style={styles.activityTime}>{formatActivityTime(item.created_at)}</Text>
+      </>
+    );
+
+    if (!target) {
+      return (
+        <View key={item.id} style={styles.infoCard}>
+          {content}
+        </View>
+      );
+    }
+
     return (
-      <View key={item.id} style={styles.infoCard}>
-        <Text style={styles.infoCardTitle}>{getActivityLabel(item)}</Text>
-        <Text style={styles.infoCardMeta}>{formatActivityTime(item.created_at)}</Text>
-      </View>
+      <Pressable
+        key={item.id}
+        style={[styles.infoCard, styles.activityCardPressable]}
+        onPress={() => router.push(target)}
+      >
+        {content}
+      </Pressable>
     );
   }
 
@@ -540,6 +640,15 @@ export default function HomeScreen() {
             </View>
           ) : null}
         </View>
+
+        <Pressable
+          style={styles.searchBarButton}
+          onPress={() => router.push('/search')}
+        >
+          <Text style={styles.searchBarButtonText}>
+            Search tasks, shopping, records...
+          </Text>
+        </Pressable>
 
         <View style={styles.heroCard}>
           <Text style={styles.heroTitle}>Today at a glance</Text>
@@ -969,6 +1078,10 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  activityCardPressable: {
+    borderWidth: 1,
+    borderColor: '#E8E3DA',
+  },
   lowStockCard: {
     backgroundColor: '#FFF8F3',
     borderWidth: 1,
@@ -1013,6 +1126,11 @@ const styles = StyleSheet.create({
     color: '#5F6368',
     marginBottom: 4,
   },
+  activityTime: {
+    fontSize: 13,
+    color: '#8A8F98',
+    marginTop: 6,
+  },
   statusBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -1040,5 +1158,18 @@ const styles = StyleSheet.create({
   },
   statusBadgeTextDone: {
     color: '#FFFFFF',
+  },
+  searchBarButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E8E3DA',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  searchBarButtonText: {
+    fontSize: 15,
+    color: '#8A8F98',
   },
 });

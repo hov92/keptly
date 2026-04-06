@@ -172,6 +172,7 @@ export default function RootLayout() {
         <Stack.Screen name="shopping/lists" options={{ title: 'Lists' }} />
         <Stack.Screen name="shopping/lists/new" options={{ title: 'New list' }} />
         <Stack.Screen name="shopping/lists/[id]" options={{ title: 'Edit list' }} />
+        <Stack.Screen name="search" options={{ title: 'Search' }} />
       </Stack.Protected>
     </Stack>
   );
