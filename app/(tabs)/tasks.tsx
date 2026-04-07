@@ -9,12 +9,12 @@ import {
   View,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import { refreshTaskNotifications } from '../../lib/notification-polish';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
-import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
 import {
@@ -48,6 +48,41 @@ type SharedMemberName = {
 
 function shouldHideFromDefaultList(task: Task) {
   return task.is_completed && !!task.recurrence;
+}
+
+function sortTasksByDueDate(a: Task, b: Task) {
+  const aDate = a.due_date ?? '9999-12-31';
+  const bDate = b.due_date ?? '9999-12-31';
+
+  if (aDate !== bDate) {
+    return aDate.localeCompare(bDate);
+  }
+
+  return a.title.localeCompare(b.title);
+}
+
+function collapseRecurringTasks(tasks: Task[]) {
+  const nonRecurring = tasks.filter((task) => !task.recurrence);
+  const recurring = tasks.filter((task) => !!task.recurrence);
+
+  const recurringGroups = new Map<string, Task[]>();
+
+  for (const task of recurring) {
+    const seriesKey = task.parent_task_id || task.id;
+    const existing = recurringGroups.get(seriesKey) ?? [];
+    existing.push(task);
+    recurringGroups.set(seriesKey, existing);
+  }
+
+  const collapsedRecurring = [...recurringGroups.values()]
+    .map((group) =>
+      [...group]
+        .filter((task) => !task.is_completed)
+        .sort(sortTasksByDueDate)[0]
+    )
+    .filter(Boolean) as Task[];
+
+  return [...nonRecurring, ...collapsedRecurring].sort(sortTasksByDueDate);
 }
 
 export default function TasksScreen() {
@@ -149,15 +184,13 @@ export default function TasksScreen() {
   );
 
   const visibleTasks = useMemo(() => {
-    if (role === 'child') {
-      return tasks;
+    let nextTasks = tasks;
+
+    if (role !== 'child' && activeFilter === 'assigned' && currentUserId) {
+      nextTasks = tasks.filter((task) => task.assigned_to === currentUserId);
     }
 
-    if (activeFilter === 'assigned' && currentUserId) {
-      return tasks.filter((task) => task.assigned_to === currentUserId);
-    }
-
-    return tasks;
+    return collapseRecurringTasks(nextTasks);
   }, [tasks, activeFilter, currentUserId, role]);
 
   async function handleToggleComplete(task: Task) {
@@ -274,7 +307,7 @@ export default function TasksScreen() {
 
         {item.recurrence ? (
           <Text style={styles.meta}>
-            Repeats:{' '}
+            Next occurrence •{' '}
             {formatRecurrenceLabel({
               recurrence: item.recurrence,
               recurrenceDays: item.recurrence_days,
@@ -299,66 +332,69 @@ export default function TasksScreen() {
   }
 
   return (
-    <AppScreen>
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.title}>Tasks</Text>
-          <Text style={styles.subtitle}>Manage household tasks.</Text>
-        </View>
-
-        {role !== 'child' ? (
-          <Pressable
-            style={styles.addButton}
-            onPress={() => router.push('/tasks/new')}
-          >
-            <Text style={styles.addButtonText}>Add</Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      <View style={styles.filterRow}>
-        {role !== 'child' ? (
-          <Pressable
-            style={[
-              styles.filterChip,
-              activeFilter === 'all' && styles.filterChipActive,
-            ]}
-            onPress={() => setActiveFilter('all')}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                activeFilter === 'all' && styles.filterChipTextActive,
-              ]}
-            >
-              All
-            </Text>
-          </Pressable>
-        ) : null}
-
-        <Pressable
-          style={[
-            styles.filterChip,
-            activeFilter === 'assigned' && styles.filterChipActive,
-          ]}
-          onPress={() => setActiveFilter('assigned')}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              activeFilter === 'assigned' && styles.filterChipTextActive,
-            ]}
-          >
-            Assigned to me
-          </Text>
-        </Pressable>
-      </View>
-
+    <SafeAreaView style={styles.screen} edges={['top']}>
       <FlatList
         data={visibleTasks}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={styles.title}>Tasks</Text>
+                <Text style={styles.subtitle}>Manage household tasks.</Text>
+              </View>
+
+              {role !== 'child' ? (
+                <Pressable
+                  style={styles.addButton}
+                  onPress={() => router.push('/tasks/new')}
+                >
+                  <Text style={styles.addButtonText}>Add</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            <View style={styles.filterRow}>
+              {role !== 'child' ? (
+                <Pressable
+                  style={[
+                    styles.filterChip,
+                    activeFilter === 'all' && styles.filterChipActive,
+                  ]}
+                  onPress={() => setActiveFilter('all')}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      activeFilter === 'all' && styles.filterChipTextActive,
+                    ]}
+                  >
+                    All
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                style={[
+                  styles.filterChip,
+                  activeFilter === 'assigned' && styles.filterChipActive,
+                ]}
+                onPress={() => setActiveFilter('assigned')}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    activeFilter === 'assigned' && styles.filterChipTextActive,
+                  ]}
+                >
+                  Assigned to me
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        }
         renderItem={renderItem}
-        scrollEnabled={false}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>
@@ -369,11 +405,19 @@ export default function TasksScreen() {
           </View>
         }
       />
-    </AppScreen>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  listContent: {
+    padding: SPACING.md,
+    paddingBottom: SPACING.xl,
+  },
   center: {
     flex: 1,
     backgroundColor: COLORS.background,
