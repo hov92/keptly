@@ -737,6 +737,22 @@ export default function ShoppingScreen() {
               </Pressable>
             </View>
 
+            <View style={styles.utilityRow}>
+  <Pressable
+    style={styles.utilityButton}
+    onPress={() => router.push('/shopping/pantry')}
+  >
+    <Text style={styles.utilityButtonText}>Pantry</Text>
+  </Pressable>
+
+  <Pressable
+    style={styles.utilityButton}
+    onPress={() => router.push('/shopping/recurring')}
+  >
+    <Text style={styles.utilityButtonText}>Recurring</Text>
+  </Pressable>
+</View>
+
             <View style={styles.filterRow}>
               {[
                 ['all', 'All'],
@@ -1506,4 +1522,22 @@ const styles = StyleSheet.create({
     color: '#B45309',
     fontWeight: '700',
   },
+  utilityRow: {
+  flexDirection: 'row',
+  gap: SPACING.sm,
+  marginBottom: SPACING.md,
+},
+utilityButton: {
+  backgroundColor: COLORS.surface,
+  borderWidth: 1,
+  borderColor: COLORS.primary,
+  borderRadius: RADIUS.md,
+  paddingHorizontal: 14,
+  paddingVertical: 10,
+},
+utilityButtonText: {
+  color: COLORS.primary,
+  fontWeight: '700',
+  fontSize: 14,
+},
 });
