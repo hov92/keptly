@@ -173,6 +173,7 @@ export default function RootLayout() {
         <Stack.Screen name="shopping/lists/new" options={{ title: 'New list' }} />
         <Stack.Screen name="shopping/lists/[id]" options={{ title: 'Edit list' }} />
         <Stack.Screen name="search" options={{ title: 'Search' }} />
+        <Stack.Screen name="shopping/duplicates" options={{ title: 'Resolve duplicates' }} />
       </Stack.Protected>
     </Stack>
   );
