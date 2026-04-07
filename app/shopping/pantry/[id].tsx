@@ -14,6 +14,7 @@ import { FormInput } from '../../../components/form-input';
 import { CategoryPicker } from '../../../components/category-picker';
 import { COLORS, RADIUS, SPACING } from '../../../constants/theme';
 import { supabase } from '../../../lib/supabase';
+import { refreshPantryLowStockNotifications } from '../../../lib/notification-polish';
 import { smartBack } from '../../../lib/navigation';
 import { SHOPPING_CATEGORIES } from '../../../lib/shopping';
 
@@ -143,6 +144,7 @@ export default function PantryItemDetailScreen() {
         return;
       }
 
+      await refreshPantryLowStockNotifications();
       handleBack();
     } catch (error) {
       console.error(error);
@@ -171,6 +173,7 @@ export default function PantryItemDetailScreen() {
             return;
           }
 
+          await refreshPantryLowStockNotifications();
           router.replace('/shopping/pantry');
         },
       },

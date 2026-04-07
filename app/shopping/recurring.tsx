@@ -9,11 +9,12 @@ import {
   View,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { refreshRecurringShoppingNotifications } from '../../lib/notification-polish';
 import { formatQuantity } from '../../lib/shopping';
 import type { ShoppingRecurringTemplate } from '../../lib/shopping-phase3';
 
@@ -70,6 +71,7 @@ export default function RecurringTemplatesScreen() {
       return;
     }
 
+    await refreshRecurringShoppingNotifications();
     loadTemplates();
   }
 
@@ -90,6 +92,7 @@ export default function RecurringTemplatesScreen() {
             return;
           }
 
+          await refreshRecurringShoppingNotifications();
           loadTemplates();
         },
       },
@@ -98,30 +101,28 @@ export default function RecurringTemplatesScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.center} edges={['top']}>
+      <View style={styles.center}>
         <ActivityIndicator size="large" />
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <AppScreen>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>Recurring Items</Text>
+
+        <Pressable
+          style={styles.addButton}
+          onPress={() => router.push('/shopping/recurring-new')}
+        >
+          <Text style={styles.addButtonText}>Add</Text>
+        </Pressable>
+      </View>
+
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <View style={styles.headerRow}>
-            <Text style={styles.title}>Recurring Items</Text>
-
-            <Pressable
-              style={styles.addButton}
-              onPress={() => router.push('/shopping/recurring-new')}
-            >
-              <Text style={styles.addButtonText}>Add</Text>
-            </Pressable>
-          </View>
-        }
         renderItem={({ item }) => (
           <Pressable
             style={styles.card}
@@ -169,24 +170,16 @@ export default function RecurringTemplatesScreen() {
           </View>
         }
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
   center: {
     flex: 1,
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  listContent: {
-    padding: SPACING.md,
-    paddingBottom: SPACING.xl,
   },
   headerRow: {
     flexDirection: 'row',

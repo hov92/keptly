@@ -1,72 +1,101 @@
-import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import type { Href } from 'expo-router';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false,
     shouldSetBadge: false,
   }),
 });
-
-export async function ensureNotificationPermissions() {
-  const settings = await Notifications.getPermissionsAsync();
-
-  if (settings.granted || settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
-    return true;
-  }
-
-  const requested = await Notifications.requestPermissionsAsync({
-    ios: {
-      allowAlert: true,
-      allowBadge: true,
-      allowSound: true,
-    },
-  });
-
-  return (
-    requested.granted ||
-    requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
-  );
-}
 
 export async function configureNotificationChannel() {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync('default', {
     name: 'Default',
-    importance: Notifications.AndroidImportance.HIGH,
-    sound: 'default',
+    importance: Notifications.AndroidImportance.DEFAULT,
   });
 }
 
-export async function registerForPushToken() {
-  const granted = await ensureNotificationPermissions();
-  if (!granted) return null;
-
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId;
-
-  if (!projectId) {
-    console.warn('Missing EAS projectId for push token registration.');
-    return null;
+export async function ensureNotificationPermissions() {
+  const existing = await Notifications.getPermissionsAsync();
+  if (existing.granted || existing.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
+    return existing;
   }
 
-  const token = await Notifications.getExpoPushTokenAsync({ projectId });
-  return token.data;
+  return Notifications.requestPermissionsAsync();
 }
 
-function combineDateAndHour(dateYmd: string, hour: number, minute = 0) {
-  const date = new Date(`${dateYmd}T12:00:00`);
-  date.setHours(hour, minute, 0, 0);
-  return date;
+type NavigateFn = (href: Href) => void;
+
+function getRouteFromNotificationData(data: Record<string, unknown> | undefined): Href | null {
+  if (!data) return null;
+
+  if (typeof data.taskId === 'string') {
+    return {
+      pathname: '/tasks/[id]',
+      params: {
+        id: data.taskId,
+        returnTo: '/(tabs)/tasks',
+      },
+    } as Href;
+  }
+
+  if (typeof data.pantryItemId === 'string') {
+    return {
+      pathname: '/shopping/pantry/[id]',
+      params: {
+        id: data.pantryItemId,
+        returnTo: '/shopping/pantry',
+      },
+    } as Href;
+  }
+
+  if (typeof data.templateId === 'string') {
+    return {
+      pathname: '/shopping/recurring/[id]',
+      params: {
+        id: data.templateId,
+        returnTo: '/shopping/recurring',
+      },
+    } as Href;
+  }
+
+  return null;
 }
 
-function isFuture(date: Date) {
-  return date.getTime() > Date.now();
+export function setupNotificationRouting(navigate: NavigateFn) {
+  const subscription = Notifications.addNotificationResponseReceivedListener(
+    (response) => {
+      const route = getRouteFromNotificationData(
+        response.notification.request.content.data as Record<string, unknown>
+      );
+
+      if (route) {
+        navigate(route);
+      }
+    }
+  );
+
+  return () => {
+    subscription.remove();
+  };
+}
+
+export async function handleInitialNotificationRoute(navigate: NavigateFn) {
+  const response = await Notifications.getLastNotificationResponseAsync();
+  if (!response) return;
+
+  const route = getRouteFromNotificationData(
+    response.notification.request.content.data as Record<string, unknown>
+  );
+
+  if (route) {
+    navigate(route);
+  }
 }
 
 export async function scheduleTaskDueReminder(params: {
@@ -74,28 +103,33 @@ export async function scheduleTaskDueReminder(params: {
   title: string;
   dueDate: string | null;
 }) {
-  const { taskId, title, dueDate } = params;
-  if (!dueDate) return null;
+  if (!params.dueDate) return null;
 
-  const granted = await ensureNotificationPermissions();
-  if (!granted) return null;
+  const date = new Date(params.dueDate);
+  const triggerDate = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    9,
+    0,
+    0,
+    0
+  );
 
-  const triggerDate = new Date(Date.now() + 60 * 1000);
+  if (triggerDate.getTime() <= Date.now()) return null;
 
   return Notifications.scheduleNotificationAsync({
     content: {
       title: 'Task due today',
-      body: title,
+      body: params.title,
       data: {
         type: 'task_due',
-        taskId,
+        taskId: params.taskId,
       },
-      sound: 'default',
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date: triggerDate,
-      channelId: 'default',
     },
   });
 }
@@ -105,68 +139,33 @@ export async function scheduleTaskOverdueReminder(params: {
   title: string;
   dueDate: string | null;
 }) {
-  const { taskId, title, dueDate } = params;
-  if (!dueDate) return null;
+  if (!params.dueDate) return null;
 
-  const granted = await ensureNotificationPermissions();
-  if (!granted) return null;
+  const date = new Date(params.dueDate);
+  const triggerDate = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    18,
+    0,
+    0,
+    0
+  );
 
-  const triggerDate = new Date(Date.now() + 60 * 1000);
+  if (triggerDate.getTime() <= Date.now()) return null;
 
   return Notifications.scheduleNotificationAsync({
     content: {
       title: 'Task overdue',
-      body: title,
+      body: `${params.title} still needs attention.`,
       data: {
         type: 'task_overdue',
-        taskId,
+        taskId: params.taskId,
       },
-      sound: 'default',
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,
       date: triggerDate,
-      channelId: 'default',
     },
   });
-}
-
-export async function scheduleServiceReceiptReminder(params: {
-  serviceRecordId: string;
-  serviceTitle: string;
-  serviceDate: string | null;
-}) {
-  const { serviceRecordId, serviceTitle, serviceDate } = params;
-  if (!serviceDate) return null;
-
-  const granted = await ensureNotificationPermissions();
-  if (!granted) return null;
-
-  const triggerDate = new Date(Date.now() + 60 * 1000);
-
-  if (!isFuture(triggerDate)) return null;
-
-  return Notifications.scheduleNotificationAsync({
-    content: {
-      title: 'Upload receipt or document',
-      body: `Upload receipt, invoice, or warranty for ${serviceTitle}.`,
-      data: {
-        type: 'service_receipt',
-        serviceRecordId,
-      },
-      sound: 'default',
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: triggerDate,
-      channelId: 'default',
-    },
-  });
-}
-
-export async function cancelScheduledNotification(
-  notificationId: string | null | undefined
-) {
-  if (!notificationId) return;
-  await Notifications.cancelScheduledNotificationAsync(notificationId);
 }

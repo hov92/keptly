@@ -3,6 +3,7 @@ import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 
 import { getNoHouseholdRoute } from '../../../lib/no-household-route';
+import { refreshTaskNotifications } from '../../../lib/notification-polish';
 import { supabase } from '../../../lib/supabase';
 import { getCurrentHouseholdId } from '../../../lib/household';
 import { CategoryPicker } from '../../../components/category-picker';
@@ -190,7 +191,10 @@ export default function EditTaskScreen() {
         }
       }
 
-      router.replace(returnTo as Href || '/tasks');
+      await refreshTaskNotifications();
+
+      const nextRoute: Href = (returnTo as Href) || '/tasks';
+      router.replace(nextRoute);
     } catch (error) {
       console.error(error);
       Alert.alert('Save failed', 'Could not update task.');

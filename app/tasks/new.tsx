@@ -3,6 +3,7 @@ import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router } from 'expo-router';
 
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
+import { refreshTaskNotifications } from '../../lib/notification-polish';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { CategoryPicker } from '../../components/category-picker';
@@ -186,6 +187,7 @@ export default function NewTaskScreen() {
         await saveCustomTaskCategory(finalCategory, user.id);
       }
 
+      await refreshTaskNotifications();
       router.back();
     } catch (error) {
       console.error(error);

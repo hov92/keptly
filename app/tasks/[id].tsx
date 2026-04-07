@@ -17,6 +17,7 @@ import { supabase } from '../../lib/supabase';
 import { AppScreen } from '../../components/app-screen';
 import { COLORS, RADIUS, SPACING } from '../../constants/theme';
 import { getActiveHouseholdPermissions } from '../../lib/permissions';
+import { refreshTaskNotifications } from '../../lib/notification-polish';
 import {
   completeTaskWithRecurrence,
   formatRecurrenceLabel,
@@ -159,6 +160,7 @@ export default function TaskDetailScreen() {
             return;
           }
 
+          await refreshTaskNotifications();
           router.replace('/tasks');
         },
       },
@@ -191,12 +193,14 @@ export default function TaskDetailScreen() {
           return;
         }
 
+        await refreshTaskNotifications();
         await loadTask();
         return;
       }
 
       if (!task.is_completed) {
         await completeTaskWithRecurrence(task);
+        await refreshTaskNotifications();
         await loadTask();
         return;
       }
@@ -211,6 +215,7 @@ export default function TaskDetailScreen() {
         return;
       }
 
+      await refreshTaskNotifications();
       await loadTask();
     } catch (error) {
       console.error(error);

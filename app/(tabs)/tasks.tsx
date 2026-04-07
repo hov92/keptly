@@ -11,6 +11,7 @@ import {
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
+import { refreshTaskNotifications } from '../../lib/notification-polish';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
 import { AppScreen } from '../../components/app-screen';
@@ -183,12 +184,14 @@ export default function TasksScreen() {
           return;
         }
 
+        await refreshTaskNotifications();
         await loadTasks();
         return;
       }
 
       if (!task.is_completed) {
         await completeTaskWithRecurrence(task);
+        await refreshTaskNotifications();
         await loadTasks();
         return;
       }
@@ -203,6 +206,7 @@ export default function TasksScreen() {
         return;
       }
 
+      await refreshTaskNotifications();
       await loadTasks();
     } catch (error) {
       console.error(error);

@@ -14,10 +14,11 @@ import { FormInput } from '../../../components/form-input';
 import { CategoryPicker } from '../../../components/category-picker';
 import { COLORS, RADIUS, SPACING } from '../../../constants/theme';
 import { supabase } from '../../../lib/supabase';
+import { refreshRecurringShoppingNotifications } from '../../../lib/notification-polish';
 import { smartBack } from '../../../lib/navigation';
 import { SHOPPING_CATEGORIES } from '../../../lib/shopping';
 
-type RecurringItem = {
+type RecurringTemplate = {
   id: string;
   title: string;
   quantity: number | null;
@@ -28,7 +29,7 @@ type RecurringItem = {
   is_active: boolean;
 };
 
-export default function RecurringItemDetailScreen() {
+export default function RecurringTemplateDetailScreen() {
   const { id, returnTo } = useLocalSearchParams<{
     id: string;
     returnTo?: string;
@@ -37,13 +38,15 @@ export default function RecurringItemDetailScreen() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [item, setItem] = useState<RecurringItem | null>(null);
+  const [item, setItem] = useState<RecurringTemplate | null>(null);
 
   const [title, setTitle] = useState('');
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
   const [category, setCategory] = useState('Other');
   const [notes, setNotes] = useState('');
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isActive, setIsActive] = useState(true);
 
   function handleBack() {
     smartBack({
@@ -71,13 +74,15 @@ export default function RecurringItemDetailScreen() {
           return;
         }
 
-        const nextItem = data as RecurringItem;
+        const nextItem = data as RecurringTemplate;
         setItem(nextItem);
         setTitle(nextItem.title ?? '');
         setQuantity(nextItem.quantity != null ? String(nextItem.quantity) : '');
         setUnit(nextItem.unit ?? '');
         setCategory(nextItem.category ?? 'Other');
         setNotes(nextItem.notes ?? '');
+        setIsFavorite(nextItem.is_favorite ?? false);
+        setIsActive(nextItem.is_active ?? true);
       } catch (error) {
         console.error(error);
         Alert.alert('Load failed', 'Could not load recurring item.');
@@ -116,6 +121,8 @@ export default function RecurringItemDetailScreen() {
           unit: unit.trim() || null,
           category,
           notes: notes.trim() || null,
+          is_favorite: isFavorite,
+          is_active: isActive,
         })
         .eq('id', id);
 
@@ -124,6 +131,7 @@ export default function RecurringItemDetailScreen() {
         return;
       }
 
+      await refreshRecurringShoppingNotifications();
       handleBack();
     } catch (error) {
       console.error(error);
@@ -131,44 +139,6 @@ export default function RecurringItemDetailScreen() {
     } finally {
       setSaving(false);
     }
-  }
-
-  async function handleToggleFavorite() {
-    if (!item) return;
-
-    const { error } = await supabase
-      .from('shopping_recurring_templates')
-      .update({ is_favorite: !item.is_favorite })
-      .eq('id', item.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
-      return;
-    }
-
-    setItem({
-      ...item,
-      is_favorite: !item.is_favorite,
-    });
-  }
-
-  async function handleToggleActive() {
-    if (!item) return;
-
-    const { error } = await supabase
-      .from('shopping_recurring_templates')
-      .update({ is_active: !item.is_active })
-      .eq('id', item.id);
-
-    if (error) {
-      Alert.alert('Update failed', error.message);
-      return;
-    }
-
-    setItem({
-      ...item,
-      is_active: !item.is_active,
-    });
   }
 
   async function handleDelete() {
@@ -190,6 +160,7 @@ export default function RecurringItemDetailScreen() {
             return;
           }
 
+          await refreshRecurringShoppingNotifications();
           router.replace('/shopping/recurring');
         },
       },
@@ -221,7 +192,7 @@ export default function RecurringItemDetailScreen() {
       </Pressable>
 
       <FormInput
-        placeholder="Item name"
+        placeholder="Recurring item name"
         value={title}
         onChangeText={setTitle}
         returnKeyType="done"
@@ -257,21 +228,37 @@ export default function RecurringItemDetailScreen() {
         multiline
       />
 
+      <Pressable
+        style={[styles.toggleButton, isFavorite && styles.toggleButtonActive]}
+        onPress={() => setIsFavorite((prev) => !prev)}
+      >
+        <Text
+          style={[
+            styles.toggleButtonText,
+            isFavorite && styles.toggleButtonTextActive,
+          ]}
+        >
+          {isFavorite ? 'Favorite: Yes' : 'Favorite: No'}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.toggleButton, isActive && styles.toggleButtonActive]}
+        onPress={() => setIsActive((prev) => !prev)}
+      >
+        <Text
+          style={[
+            styles.toggleButtonText,
+            isActive && styles.toggleButtonTextActive,
+          ]}
+        >
+          {isActive ? 'Active: Yes' : 'Active: No'}
+        </Text>
+      </Pressable>
+
       <Pressable style={styles.primaryButton} onPress={handleSave} disabled={saving}>
         <Text style={styles.primaryButtonText}>
           {saving ? 'Saving...' : 'Save Changes'}
-        </Text>
-      </Pressable>
-
-      <Pressable style={styles.secondaryButton} onPress={handleToggleFavorite}>
-        <Text style={styles.secondaryButtonText}>
-          {item.is_favorite ? 'Remove Favorite' : 'Mark Favorite'}
-        </Text>
-      </Pressable>
-
-      <Pressable style={styles.secondaryButton} onPress={handleToggleActive}>
-        <Text style={styles.secondaryButtonText}>
-          {item.is_active ? 'Deactivate' : 'Activate'}
         </Text>
       </Pressable>
 
@@ -307,6 +294,27 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     fontSize: 15,
   },
+  toggleButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+    backgroundColor: COLORS.surface,
+  },
+  toggleButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  toggleButtonText: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  toggleButtonTextActive: {
+    color: COLORS.primaryText,
+  },
   primaryButton: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.md,
@@ -317,20 +325,6 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: COLORS.primaryText,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: SPACING.sm,
-  },
-  secondaryButtonText: {
-    color: COLORS.primary,
     fontSize: 16,
     fontWeight: '600',
   },

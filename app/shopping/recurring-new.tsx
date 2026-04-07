@@ -8,6 +8,7 @@ import { CategoryPicker } from '../../components/category-picker';
 import { COLORS, RADIUS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { refreshRecurringShoppingNotifications } from '../../lib/notification-polish';
 import { SHOPPING_CATEGORIES } from '../../lib/shopping';
 
 export default function NewRecurringTemplateScreen() {
@@ -16,6 +17,8 @@ export default function NewRecurringTemplateScreen() {
   const [unit, setUnit] = useState('');
   const [category, setCategory] = useState('Other');
   const [notes, setNotes] = useState('');
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -52,6 +55,9 @@ export default function NewRecurringTemplateScreen() {
         unit: unit.trim() || null,
         category,
         notes: notes.trim() || null,
+        assigned_to: null,
+        is_favorite: isFavorite,
+        is_active: isActive,
         created_by: session?.user?.id ?? null,
       });
 
@@ -60,6 +66,7 @@ export default function NewRecurringTemplateScreen() {
         return;
       }
 
+      await refreshRecurringShoppingNotifications();
       router.replace('/shopping/recurring');
     } catch (error) {
       console.error(error);
@@ -72,7 +79,7 @@ export default function NewRecurringTemplateScreen() {
   return (
     <AppScreen>
       <FormInput
-        placeholder="Item name"
+        placeholder="Recurring item name"
         value={title}
         onChangeText={setTitle}
         returnKeyType="done"
@@ -108,6 +115,34 @@ export default function NewRecurringTemplateScreen() {
         multiline
       />
 
+      <Pressable
+        style={[styles.toggleButton, isFavorite && styles.toggleButtonActive]}
+        onPress={() => setIsFavorite((prev) => !prev)}
+      >
+        <Text
+          style={[
+            styles.toggleButtonText,
+            isFavorite && styles.toggleButtonTextActive,
+          ]}
+        >
+          {isFavorite ? 'Favorite: Yes' : 'Favorite: No'}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        style={[styles.toggleButton, isActive && styles.toggleButtonActive]}
+        onPress={() => setIsActive((prev) => !prev)}
+      >
+        <Text
+          style={[
+            styles.toggleButtonText,
+            isActive && styles.toggleButtonTextActive,
+          ]}
+        >
+          {isActive ? 'Active: Yes' : 'Active: No'}
+        </Text>
+      </Pressable>
+
       <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
         <Text style={styles.buttonText}>
           {saving ? 'Saving...' : 'Save Recurring Item'}
@@ -129,5 +164,26 @@ const styles = StyleSheet.create({
     color: COLORS.primaryText,
     fontSize: 16,
     fontWeight: '600',
+  },
+  toggleButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+    backgroundColor: COLORS.surface,
+  },
+  toggleButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  toggleButtonText: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  toggleButtonTextActive: {
+    color: COLORS.primaryText,
   },
 });

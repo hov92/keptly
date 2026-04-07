@@ -8,6 +8,7 @@ import { CategoryPicker } from '../../components/category-picker';
 import { COLORS, RADIUS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { refreshPantryLowStockNotifications } from '../../lib/notification-polish';
 import { SHOPPING_CATEGORIES } from '../../lib/shopping';
 
 export default function NewPantryItemScreen() {
@@ -75,6 +76,7 @@ export default function NewPantryItemScreen() {
         return;
       }
 
+      await refreshPantryLowStockNotifications();
       router.replace('/shopping/pantry');
     } catch (error) {
       console.error(error);

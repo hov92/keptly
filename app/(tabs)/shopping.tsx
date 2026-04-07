@@ -33,6 +33,20 @@ type SectionRow = {
   data: ShoppingListItem[];
 };
 
+type SuggestionItem = ShoppingListItem & {
+  suggestion_reason: 'recent' | 'favorite';
+};
+
+function normalizeShoppingKey(
+  item: Pick<ShoppingListItem, 'title' | 'unit' | 'category'>
+) {
+  return [
+    item.title.trim().toLowerCase(),
+    item.unit?.trim().toLowerCase() || '',
+    item.category?.trim().toLowerCase() || '',
+  ].join('::');
+}
+
 export default function ShoppingScreen() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ShoppingListItem[]>([]);
@@ -46,6 +60,7 @@ export default function ShoppingScreen() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorking, setBulkWorking] = useState(false);
+  const [quickAddWorkingId, setQuickAddWorkingId] = useState<string | null>(null);
 
   async function loadData() {
     try {
@@ -277,6 +292,76 @@ export default function ShoppingScreen() {
     [listScopedItems]
   );
 
+  const duplicateSummary = useMemo(() => {
+    const activeOnly = listScopedItems.filter((item) => !item.is_completed);
+    const groups = new Map<string, ShoppingListItem[]>();
+
+    for (const item of activeOnly) {
+      const key = normalizeShoppingKey(item);
+      const existing = groups.get(key) ?? [];
+      existing.push(item);
+      groups.set(key, existing);
+    }
+
+    const duplicates = [...groups.values()].filter((group) => group.length > 1);
+
+    const duplicateIds = new Set<string>();
+    for (const group of duplicates) {
+      for (const item of group) {
+        duplicateIds.add(item.id);
+      }
+    }
+
+    const topGroups = duplicates
+      .sort((a, b) => b.length - a.length || a[0].title.localeCompare(b[0].title))
+      .slice(0, 3);
+
+    return {
+      duplicateIds,
+      duplicateGroupCount: duplicates.length,
+      preview: topGroups.map((group) => ({
+        title: group[0].title,
+        count: group.length,
+      })),
+    };
+  }, [listScopedItems]);
+
+  const suggestions = useMemo<SuggestionItem[]>(() => {
+    const recentPool = [...listScopedItems]
+      .filter((item) => !!item.last_purchased_at || item.is_completed)
+      .sort((a, b) => {
+        const aDate = a.last_purchased_at || a.updated_at || a.created_at;
+        const bDate = b.last_purchased_at || b.updated_at || b.created_at;
+        return new Date(bDate).getTime() - new Date(aDate).getTime();
+      })
+      .slice(0, 8)
+      .map((item) => ({
+        ...item,
+        suggestion_reason: 'recent' as const,
+      }));
+
+      const favoritePool = [...listScopedItems]
+        .filter((item) => item.is_favorite)
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .slice(0, 8)
+        .map((item) => ({
+          ...item,
+          suggestion_reason: 'favorite' as const,
+        }));
+
+      const seen = new Set<string>();
+      const merged: SuggestionItem[] = [];
+
+      for (const item of [...recentPool, ...favoritePool]) {
+        const key = normalizeShoppingKey(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+      }
+
+      return merged.slice(0, 8);
+  }, [listScopedItems]);
+
   const sections = useMemo<SectionRow[]>(() => {
     const groups = new Map<string, ShoppingListItem[]>();
 
@@ -482,6 +567,77 @@ export default function ShoppingScreen() {
     ]);
   }
 
+  async function handleQuickAdd(item: SuggestionItem) {
+    if (!householdId || !activeListId) return;
+
+    try {
+      setQuickAddWorkingId(item.id);
+
+      const duplicateMatch = listScopedItems.find(
+        (existing) =>
+          !existing.is_completed &&
+          normalizeShoppingKey(existing) === normalizeShoppingKey(item)
+      );
+
+      if (duplicateMatch) {
+        const existingQty = duplicateMatch.quantity ?? 0;
+        const addQty = item.quantity ?? 1;
+        const nextQty =
+          existingQty > 0 || addQty > 0 ? existingQty + addQty : null;
+
+        const { error } = await supabase
+          .from('shopping_list_items')
+          .update({
+            quantity: nextQty,
+            is_favorite: duplicateMatch.is_favorite || item.is_favorite,
+          })
+          .eq('id', duplicateMatch.id);
+
+        if (error) {
+          Alert.alert('Quick add failed', error.message);
+          return;
+        }
+
+        Alert.alert(
+          'Updated existing item',
+          `${duplicateMatch.title} was already on this list, so the quantity was updated instead.`
+        );
+        loadData();
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const { error } = await supabase.from('shopping_list_items').insert({
+        household_id: householdId,
+        list_id: activeListId,
+        title: item.title,
+        quantity: item.quantity,
+        unit: item.unit,
+        category: item.category,
+        notes: item.notes,
+        is_completed: false,
+        is_favorite: item.is_favorite,
+        created_by: session?.user?.id ?? null,
+        assigned_to: null,
+      });
+
+      if (error) {
+        Alert.alert('Quick add failed', error.message);
+        return;
+      }
+
+      loadData();
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Quick add failed', 'Could not add this suggestion.');
+    } finally {
+      setQuickAddWorkingId(null);
+    }
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.center} edges={['top']}>
@@ -612,6 +768,82 @@ export default function ShoppingScreen() {
               ))}
             </View>
 
+            {duplicateSummary.duplicateGroupCount > 0 ? (
+              <Pressable
+                style={styles.duplicateBanner}
+                onPress={() =>
+                  router.push({
+                    pathname: '/shopping/duplicates',
+                    params: {
+                      listId: activeListId ?? '',
+                      returnTo: '/(tabs)/shopping',
+                    },
+                  })
+                }
+              >
+                <Text style={styles.duplicateBannerTitle}>
+                  Possible duplicates found
+                </Text>
+                <Text style={styles.duplicateBannerText}>
+                  {duplicateSummary.duplicateGroupCount} duplicate group
+                  {duplicateSummary.duplicateGroupCount === 1 ? '' : 's'} in this list.
+                </Text>
+
+                <View style={styles.duplicatePreviewWrap}>
+                  {duplicateSummary.preview.map((group) => (
+                    <View key={group.title} style={styles.duplicatePreviewChip}>
+                      <Text style={styles.duplicatePreviewText}>
+                        {group.title} ×{group.count}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                <Text style={styles.duplicateBannerLink}>Review duplicates</Text>
+              </Pressable>
+            ) : null}
+
+            {suggestions.length > 0 ? (
+              <View style={styles.suggestionsBlock}>
+                <Text style={styles.suggestionsTitle}>Quick Add</Text>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.suggestionsScroll}
+                >
+                  {suggestions.map((item) => (
+                    <Pressable
+                      key={`suggestion-${item.id}`}
+                      style={styles.suggestionCard}
+                      onPress={() => handleQuickAdd(item)}
+                      disabled={quickAddWorkingId === item.id}
+                    >
+                      <Text style={styles.suggestionTitle}>{item.title}</Text>
+
+                      <Text style={styles.suggestionMeta}>
+                        {item.suggestion_reason === 'favorite'
+                          ? 'Favorite'
+                          : 'Recent'}
+                      </Text>
+
+                      {formatQuantity(item.quantity, item.unit) ? (
+                        <Text style={styles.suggestionMeta}>
+                          Qty: {formatQuantity(item.quantity, item.unit)}
+                        </Text>
+                      ) : null}
+
+                      <View style={styles.suggestionAddButton}>
+                        <Text style={styles.suggestionAddButtonText}>
+                          {quickAddWorkingId === item.id ? 'Adding...' : 'Add Again'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.summaryRow}>
               <Text style={styles.summaryText}>
                 {activeList?.name || 'Current list'} • {filteredItems.length} visible
@@ -627,9 +859,7 @@ export default function ShoppingScreen() {
             {isSelecting ? (
               <View style={styles.bulkPanel}>
                 <View style={styles.bulkHeaderRow}>
-                  <Text style={styles.bulkTitle}>
-                    {selectedCount} selected
-                  </Text>
+                  <Text style={styles.bulkTitle}>{selectedCount} selected</Text>
 
                   <View style={styles.bulkMiniActions}>
                     <Pressable
@@ -730,6 +960,7 @@ export default function ShoppingScreen() {
         renderItem={({ item }) => {
           const quantityLabel = formatQuantity(item.quantity, item.unit);
           const isSelected = selectedIds.includes(item.id);
+          const isDuplicate = duplicateSummary.duplicateIds.has(item.id);
 
           return (
             <Pressable
@@ -820,9 +1051,15 @@ export default function ShoppingScreen() {
                 </Text>
               ) : null}
 
-              {item.is_favorite ? (
-                <Text style={styles.favoriteMeta}>Favorite</Text>
-              ) : null}
+              <View style={styles.metaBadgesRow}>
+                {item.is_favorite ? (
+                  <Text style={styles.favoriteMeta}>Favorite</Text>
+                ) : null}
+
+                {isDuplicate ? (
+                  <Text style={styles.duplicateMeta}>Possible duplicate</Text>
+                ) : null}
+              </View>
             </Pressable>
           );
         }}
@@ -988,6 +1225,91 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: COLORS.primaryText,
+  },
+  duplicateBanner: {
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#F5D1A8',
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  duplicateBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#9A4D00',
+    marginBottom: 4,
+  },
+  duplicateBannerText: {
+    fontSize: 14,
+    color: '#9A4D00',
+    marginBottom: 8,
+  },
+  duplicatePreviewWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  duplicatePreviewChip: {
+    backgroundColor: '#FFE8CC',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  duplicatePreviewText: {
+    color: '#9A4D00',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  duplicateBannerLink: {
+    marginTop: SPACING.sm,
+    color: '#9A4D00',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  suggestionsBlock: {
+    marginBottom: SPACING.md,
+  },
+  suggestionsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  suggestionsScroll: {
+    paddingRight: 6,
+  },
+  suggestionCard: {
+    width: 170,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginRight: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  suggestionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 6,
+  },
+  suggestionMeta: {
+    fontSize: 13,
+    color: COLORS.muted,
+    marginBottom: 4,
+  },
+  suggestionAddButton: {
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  suggestionAddButtonText: {
+    color: COLORS.primaryText,
+    fontWeight: '700',
+    fontSize: 13,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -1168,10 +1490,20 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     marginBottom: 4,
   },
+  metaBadgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: 4,
+  },
   favoriteMeta: {
     fontSize: 13,
     color: COLORS.accent,
     fontWeight: '700',
-    marginTop: 4,
+  },
+  duplicateMeta: {
+    fontSize: 13,
+    color: '#B45309',
+    fontWeight: '700',
   },
 });

@@ -6,14 +6,17 @@ import type { Session } from '@supabase/supabase-js';
 import {
   configureNotificationChannel,
   ensureNotificationPermissions,
+  handleInitialNotificationRoute,
+  setupNotificationRouting,
 } from '../lib/notifications';
+import { refreshAllHouseholdNotifications } from '../lib/notification-polish';
 import { supabase } from '../lib/supabase';
 
 function getRouteFallback(routeName: string): Href {
   if (routeName.startsWith('household/')) return '/profile';
   if (routeName.startsWith('tasks/')) return '/tasks';
   if (routeName.startsWith('records/')) return '/records';
-  if (routeName.startsWith('shopping/')) return '/shopping';
+  if (routeName.startsWith('shopping/')) return '/(tabs)/shopping';
   return '/profile';
 }
 
@@ -25,6 +28,25 @@ export default function RootLayout() {
     configureNotificationChannel().catch(console.error);
     ensureNotificationPermissions().catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    refreshAllHouseholdNotifications().catch(console.error);
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const cleanup = setupNotificationRouting((href) => {
+      router.push(href);
+    });
+
+    handleInitialNotificationRoute((href) => {
+      router.push(href);
+    }).catch(console.error);
+
+    return cleanup;
+  }, [session?.user?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -132,6 +154,8 @@ export default function RootLayout() {
       <Stack.Protected guard={!!session}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
+        <Stack.Screen name="search" options={{ title: 'Search' }} />
+
         <Stack.Screen name="household/create" options={{ title: 'Create household' }} />
         <Stack.Screen name="household/edit" options={{ title: 'Edit household' }} />
         <Stack.Screen name="household/invite" options={{ title: 'Invite member' }} />
@@ -172,8 +196,10 @@ export default function RootLayout() {
         <Stack.Screen name="shopping/lists" options={{ title: 'Lists' }} />
         <Stack.Screen name="shopping/lists/new" options={{ title: 'New list' }} />
         <Stack.Screen name="shopping/lists/[id]" options={{ title: 'Edit list' }} />
-        <Stack.Screen name="search" options={{ title: 'Search' }} />
-        <Stack.Screen name="shopping/duplicates" options={{ title: 'Resolve duplicates' }} />
+        <Stack.Screen
+          name="shopping/duplicates"
+          options={{ title: 'Resolve duplicates' }}
+        />
       </Stack.Protected>
     </Stack>
   );
