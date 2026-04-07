@@ -340,26 +340,26 @@ export default function ShoppingScreen() {
         suggestion_reason: 'recent' as const,
       }));
 
-      const favoritePool = [...listScopedItems]
-        .filter((item) => item.is_favorite)
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .slice(0, 8)
-        .map((item) => ({
-          ...item,
-          suggestion_reason: 'favorite' as const,
-        }));
+    const favoritePool = [...listScopedItems]
+      .filter((item) => item.is_favorite)
+      .sort((a, b) => a.title.localeCompare(b.title))
+      .slice(0, 8)
+      .map((item) => ({
+        ...item,
+        suggestion_reason: 'favorite' as const,
+      }));
 
-      const seen = new Set<string>();
-      const merged: SuggestionItem[] = [];
+    const seen = new Set<string>();
+    const merged: SuggestionItem[] = [];
 
-      for (const item of [...recentPool, ...favoritePool]) {
-        const key = normalizeShoppingKey(item);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        merged.push(item);
-      }
+    for (const item of [...recentPool, ...favoritePool]) {
+      const key = normalizeShoppingKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
 
-      return merged.slice(0, 8);
+    return merged.slice(0, 8);
   }, [listScopedItems]);
 
   const sections = useMemo<SectionRow[]>(() => {
@@ -738,50 +738,52 @@ export default function ShoppingScreen() {
             </View>
 
             <View style={styles.utilityRow}>
-  <Pressable
-    style={styles.utilityButton}
-    onPress={() => router.push('/shopping/pantry')}
-  >
-    <Text style={styles.utilityButtonText}>Pantry</Text>
-  </Pressable>
+              <Pressable
+                style={styles.utilityButton}
+                onPress={() => router.push('/shopping/pantry')}
+              >
+                <Text style={styles.utilityButtonText}>Pantry</Text>
+              </Pressable>
 
-  <Pressable
-    style={styles.utilityButton}
-    onPress={() => router.push('/shopping/recurring')}
-  >
-    <Text style={styles.utilityButtonText}>Recurring</Text>
-  </Pressable>
-</View>
+              <Pressable
+                style={styles.utilityButton}
+                onPress={() => router.push('/shopping/recurring')}
+              >
+                <Text style={styles.utilityButtonText}>Recurring</Text>
+              </Pressable>
+            </View>
 
-            <View style={styles.filterRow}>
-              {[
-                ['all', 'All'],
-                ['active', 'Active'],
-                ['completed', 'Completed'],
-                ['assigned', 'Assigned to me'],
-                ['favorites', 'Favorites'],
-              ].map(([value, label]) => (
-                <Pressable
-                  key={value}
-                  style={[
-                    styles.filterChip,
-                    activeFilter === value && styles.filterChipActive,
-                  ]}
-                  onPress={() => {
-                    setActiveFilter(value as ShoppingFilter);
-                    exitSelectMode();
-                  }}
-                >
-                  <Text
+            <View style={styles.filterSection}>
+              <View style={styles.filterRow}>
+                {[
+                  ['all', 'All'],
+                  ['active', 'Active'],
+                  ['completed', 'Completed'],
+                  ['assigned', 'Assigned to me'],
+                  ['favorites', 'Favorites'],
+                ].map(([value, label]) => (
+                  <Pressable
+                    key={value}
                     style={[
-                      styles.filterChipText,
-                      activeFilter === value && styles.filterChipTextActive,
+                      styles.filterChip,
+                      activeFilter === value && styles.filterChipActive,
                     ]}
+                    onPress={() => {
+                      setActiveFilter(value as ShoppingFilter);
+                      exitSelectMode();
+                    }}
                   >
-                    {label}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        activeFilter === value && styles.filterChipTextActive,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
 
             {duplicateSummary.duplicateGroupCount > 0 ? (
@@ -860,17 +862,34 @@ export default function ShoppingScreen() {
               </View>
             ) : null}
 
-            <View style={styles.summaryRow}>
+            <View style={styles.summaryActionRow}>
               <Text style={styles.summaryText}>
                 {activeList?.name || 'Current list'} • {filteredItems.length} visible
               </Text>
 
-              {completedCount > 0 && !isSelecting ? (
-                <Text style={styles.summaryText}>
-                  {completedCount} completed
-                </Text>
+              {!isSelecting ? (
+                <Pressable
+                  style={styles.selectModeButton}
+                  onPress={() => enterSelectMode()}
+                >
+                  <Text style={styles.selectModeButtonText}>Select</Text>
+                </Pressable>
               ) : null}
             </View>
+
+            {!isSelecting && completedCount > 0 ? (
+              <View style={styles.secondaryActionRow}>
+                <Pressable
+                  style={styles.clearButton}
+                  onPress={handleClearCompleted}
+                  disabled={clearingCompleted}
+                >
+                  <Text style={styles.clearButtonText}>
+                    {clearingCompleted ? 'Clearing...' : 'Clear Completed'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {isSelecting ? (
               <View style={styles.bulkPanel}>
@@ -946,28 +965,7 @@ export default function ShoppingScreen() {
                   </Pressable>
                 </View>
               </View>
-            ) : (
-              <View style={styles.topActionRow}>
-                <Pressable
-                  style={styles.selectModeButton}
-                  onPress={() => enterSelectMode()}
-                >
-                  <Text style={styles.selectModeButtonText}>Select</Text>
-                </Pressable>
-
-                {completedCount > 0 ? (
-                  <Pressable
-                    style={styles.clearButton}
-                    onPress={handleClearCompleted}
-                    disabled={clearingCompleted}
-                  >
-                    <Text style={styles.clearButtonText}>
-                      {clearingCompleted ? 'Clearing...' : 'Clear Completed'}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            )}
+            ) : null}
           </View>
         }
         renderSectionHeader={({ section }) => (
@@ -1130,9 +1128,9 @@ const styles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
     minWidth: 92,
     alignItems: 'center',
   },
@@ -1145,7 +1143,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
+    borderRadius: 22,
     paddingHorizontal: 18,
     paddingVertical: 12,
     minWidth: 92,
@@ -1160,7 +1158,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   listScrollWrap: {
     flex: 1,
@@ -1181,8 +1179,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
   },
   listChipActive: {
     backgroundColor: COLORS.primary,
@@ -1207,7 +1205,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
     borderRadius: 999,
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingVertical: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1216,14 +1214,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13,
   },
+  utilityRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  utilityButton: {
+    flex: 1,
+    backgroundColor: '#F1ECE4',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 15,
+    borderWidth: 0,
+  },
+  utilityButtonText: {
+    color: COLORS.primary,
+    fontWeight: '700',
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  filterSection: {
+    backgroundColor: '#F4F1EA',
+    borderRadius: 20,
+    padding: 10,
+    marginBottom: SPACING.md,
+  },
   filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: SPACING.sm,
-    marginBottom: SPACING.sm,
   },
   filterChip: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 999,
@@ -1327,34 +1349,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13,
   },
-  summaryRow: {
+  summaryActionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  secondaryActionRow: {
+    flexDirection: 'row',
     marginBottom: SPACING.sm,
   },
   summaryText: {
     color: COLORS.muted,
     fontSize: 13,
     fontWeight: '600',
-  },
-  topActionRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    alignItems: 'center',
+    flex: 1,
   },
   selectModeButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.surface,
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: COLORS.primary,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   selectModeButtonText: {
     color: COLORS.primary,
     fontWeight: '700',
+    fontSize: 13,
   },
   clearButton: {
     alignSelf: 'flex-start',
@@ -1522,22 +1545,4 @@ const styles = StyleSheet.create({
     color: '#B45309',
     fontWeight: '700',
   },
-  utilityRow: {
-  flexDirection: 'row',
-  gap: SPACING.sm,
-  marginBottom: SPACING.md,
-},
-utilityButton: {
-  backgroundColor: COLORS.surface,
-  borderWidth: 1,
-  borderColor: COLORS.primary,
-  borderRadius: RADIUS.md,
-  paddingHorizontal: 14,
-  paddingVertical: 10,
-},
-utilityButtonText: {
-  color: COLORS.primary,
-  fontWeight: '700',
-  fontSize: 14,
-},
 });
