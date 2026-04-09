@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -58,6 +58,17 @@ export default function TaskDetailScreen() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [role, setRole] = useState<'owner' | 'member' | 'child' | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [stoppingRepeat, setStoppingRepeat] = useState(false);
+
+  const recurrenceLabel = useMemo(() => {
+    if (!task?.recurrence) return null;
+
+    return formatRecurrenceLabel({
+      recurrence: task.recurrence,
+      recurrenceDays: task.recurrence_days,
+      recurrenceInterval: task.recurrence_interval,
+    });
+  }, [task]);
 
   function handleBack() {
     smartBack({
@@ -153,7 +164,10 @@ export default function TaskDetailScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          const { error } = await supabase.from('tasks').delete().eq('id', task.id);
+          const { error } = await supabase
+            .from('tasks')
+            .delete()
+            .eq('id', task.id);
 
           if (error) {
             Alert.alert('Delete failed', error.message);
@@ -193,6 +207,10 @@ export default function TaskDetailScreen() {
           return;
         }
 
+        if (task.recurrence) {
+          Alert.alert('Completed', 'This task will appear again later.');
+        }
+
         await refreshTaskNotifications();
         await loadTask();
         return;
@@ -200,6 +218,11 @@ export default function TaskDetailScreen() {
 
       if (!task.is_completed) {
         await completeTaskWithRecurrence(task);
+
+        if (task.recurrence) {
+          Alert.alert('Completed', 'This task will appear again later.');
+        }
+
         await refreshTaskNotifications();
         await loadTask();
         return;
@@ -225,6 +248,53 @@ export default function TaskDetailScreen() {
     } finally {
       setUpdating(false);
     }
+  }
+
+  async function handleStopRepeating() {
+    if (!task) return;
+
+    Alert.alert(
+      'Stop repeating?',
+      'This task will stay in your history, but it will no longer repeat.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Stop repeating',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setStoppingRepeat(true);
+
+              const seriesRootId = task.parent_task_id || task.id;
+
+              const { error } = await supabase
+                .from('tasks')
+                .update({
+                  recurrence: null,
+                  recurrence_days: null,
+                  recurrence_interval: null,
+                  parent_task_id: null,
+                })
+                .or(`id.eq.${seriesRootId},parent_task_id.eq.${seriesRootId}`);
+
+              if (error) {
+                Alert.alert('Update failed', error.message);
+                return;
+              }
+
+              await refreshTaskNotifications();
+              await loadTask();
+              Alert.alert('Updated', 'This task will no longer repeat.');
+            } catch (error) {
+              console.error(error);
+              Alert.alert('Update failed', 'Could not stop repeating.');
+            } finally {
+              setStoppingRepeat(false);
+            }
+          },
+        },
+      ]
+    );
   }
 
   if (loading) {
@@ -255,41 +325,74 @@ export default function TaskDetailScreen() {
         <Text style={styles.backButtonText}>Back</Text>
       </Pressable>
 
-      <View style={styles.card}>
+      <View style={styles.headerCard}>
         <Text style={styles.title}>{task.title}</Text>
 
-        <Text style={styles.meta}>
-          Status: {task.is_completed ? 'Done' : 'Open'}
-        </Text>
+        <View style={styles.headerMetaWrap}>
+          {recurrenceLabel ? (
+            <View style={styles.repeatBadge}>
+              <Text style={styles.repeatBadgeText}>
+                Repeats: {recurrenceLabel}
+              </Text>
+            </View>
+          ) : null}
 
+          {task.is_completed ? (
+            <View style={styles.doneBadge}>
+              <Text style={styles.doneBadgeText}>Completed</Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.card}>
         {task.category ? (
           <Text style={styles.meta}>Category: {task.category}</Text>
         ) : null}
 
-        <Text style={styles.meta}>
-          Due: {task.due_date || 'No due date'}
-        </Text>
-
-        {task.recurrence ? (
-          <Text style={styles.meta}>
-            Repeats:{' '}
-            {formatRecurrenceLabel({
-              recurrence: task.recurrence,
-              recurrenceDays: task.recurrence_days,
-              recurrenceInterval: task.recurrence_interval,
-            })}
-          </Text>
-        ) : (
-          <Text style={styles.meta}>Repeats: No</Text>
-        )}
+        {task.due_date ? (
+          <Text style={styles.meta}>Due: {task.due_date}</Text>
+        ) : null}
 
         <Text style={styles.meta}>
           Assigned to: {task.assigned_name || 'Unassigned'}
         </Text>
       </View>
 
+      {role !== 'child' ? (
+        <Pressable
+          style={styles.editButton}
+          onPress={() =>
+            router.push({
+              pathname: '/tasks/edit/[id]',
+              params: {
+                id: task.id,
+                returnTo: `/tasks/${task.id}`,
+              },
+            })
+          }
+        >
+          <Text style={styles.editButtonText}>Edit Task</Text>
+        </Pressable>
+      ) : null}
+
+      {task.recurrence && role !== 'child' ? (
+        <Pressable
+          style={[
+            styles.stopRepeatingButton,
+            stoppingRepeat && styles.buttonDisabled,
+          ]}
+          onPress={handleStopRepeating}
+          disabled={stoppingRepeat}
+        >
+          <Text style={styles.stopRepeatingButtonText}>
+            {stoppingRepeat ? 'Updating...' : 'Stop Repeating'}
+          </Text>
+        </Pressable>
+      ) : null}
+
       <Pressable
-        style={styles.primaryButton}
+        style={[styles.primaryButton, updating && styles.buttonDisabled]}
         onPress={handleToggleComplete}
         disabled={updating}
       >
@@ -297,27 +400,12 @@ export default function TaskDetailScreen() {
           {updating
             ? 'Saving...'
             : task.is_completed
-            ? 'Mark Open'
-            : 'Mark Done'}
+            ? 'Mark Active'
+            : task.recurrence
+            ? 'Mark Completed (Repeats)'
+            : 'Mark Completed'}
         </Text>
       </Pressable>
-
-      {role !== 'child' ? (
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={() =>
-            router.push({
-              pathname: '/tasks/edit/[id]',
-              params: {
-                id: task.id,
-                returnTo: returnTo ?? '/tasks',
-              },
-            })
-          }
-        >
-          <Text style={styles.secondaryButtonText}>Edit Task</Text>
-        </Pressable>
-      ) : null}
 
       {role !== 'child' ? (
         <Pressable style={styles.deleteButton} onPress={handleDelete}>
@@ -344,27 +432,88 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  headerCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  headerMetaWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  repeatBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EAF3F5',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  repeatBadgeText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  doneBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.accentSoft,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  doneBadgeText: {
+    color: COLORS.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   card: {
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.lg,
     padding: SPACING.md,
     marginBottom: SPACING.md,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: SPACING.sm,
-  },
   meta: {
-    fontSize: 15,
     color: COLORS.muted,
+    fontSize: 15,
     marginBottom: 6,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: COLORS.text,
+  },
+  editButton: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  editButtonText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  stopRepeatingButton: {
+    backgroundColor: '#FFF4E5',
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  stopRepeatingButtonText: {
+    color: '#B45309',
+    fontSize: 15,
+    fontWeight: '700',
   },
   primaryButton: {
     backgroundColor: COLORS.primary,
@@ -378,20 +527,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  secondaryButton: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: SPACING.sm,
-  },
-  secondaryButtonText: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontWeight: '600',
-  },
   deleteButton: {
     backgroundColor: COLORS.dangerSoft,
     borderRadius: RADIUS.md,
@@ -402,5 +537,8 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontSize: 16,
     fontWeight: '700',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

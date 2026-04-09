@@ -1,103 +1,113 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text } from 'react-native';
-import { router, useLocalSearchParams, type Href } from 'expo-router';
-
-import { getNoHouseholdRoute } from '../../../lib/no-household-route';
-import { refreshTaskNotifications } from '../../../lib/notification-polish';
-import { supabase } from '../../../lib/supabase';
-import { getCurrentHouseholdId } from '../../../lib/household';
-import { CategoryPicker } from '../../../components/category-picker';
-import { AssigneePicker } from '../../../components/assignee-picker';
-import { WeekdayPicker, WeekdayCode } from '../../../components/weekday-picker';
-import { TASK_CATEGORIES } from '../../../constants/categories';
 import {
-  getMergedTaskCategories,
-  saveCustomTaskCategory,
-} from '../../../lib/categories';
-import { getHouseholdMemberOptions } from '../../../lib/household-members';
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+
 import { AppScreen } from '../../../components/app-screen';
 import { FormInput } from '../../../components/form-input';
-import { DateField } from '../../../components/date-field';
-import { FormScreenHeader } from '../../../components/form-screen-header';
-import { COLORS, RADIUS } from '../../../constants/theme';
+import { CategoryPicker } from '../../../components/category-picker';
+import { COLORS, RADIUS, SPACING } from '../../../constants/theme';
+import { supabase } from '../../../lib/supabase';
+import { smartBack } from '../../../lib/navigation';
+import {
+  formatRecurrenceLabel,
+  TaskRecurrence,
+  WeekdayCode,
+} from '../../../lib/task-recurrence';
 
-type AssigneeOption = {
-  label: string;
-  value: string;
-};
-
-type LoadedTask = {
+type TaskRow = {
   id: string;
   household_id: string;
   title: string;
   category: string | null;
   due_date: string | null;
+  is_completed: boolean;
   assigned_to: string | null;
-  recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
+  created_by: string | null;
+  recurrence: TaskRecurrence;
   recurrence_days: WeekdayCode[] | null;
   recurrence_interval: number | null;
+  parent_task_id: string | null;
 };
 
-const RECURRENCE_OPTIONS = [
-  'None',
+type SharedMemberName = {
+  id: string;
+  full_name: string | null;
+};
+
+const TASK_CATEGORIES = [
+  'Cleaning',
+  'Kitchen',
+  'Laundry',
+  'Bathroom',
+  'Bedroom',
+  'Yard',
+  'Maintenance',
+  'Pets',
+  'Kids',
+  'Shopping',
+  'Bills',
+  'Other',
+] as const;
+
+const RECURRENCE_OPTIONS: Exclude<TaskRecurrence, null>[] = [
   'daily',
   'weekly',
   'monthly',
   'weekdays',
-] as const;
+];
 
-type RecurrenceValue = (typeof RECURRENCE_OPTIONS)[number];
+const RECURRENCE_LABELS: Record<Exclude<TaskRecurrence, null>, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+  weekdays: 'Weekdays',
+};
 
 export default function EditTaskScreen() {
-  const { id, returnTo } = useLocalSearchParams<{ id: string; returnTo?: string }>();
+  const { id, returnTo } = useLocalSearchParams<{
+    id: string;
+    returnTo?: string;
+  }>();
+  const navigation = useNavigation();
 
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('');
-  const [customCategory, setCustomCategory] = useState('');
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([
-    ...TASK_CATEGORIES,
-  ]);
-  const [assigneeOptions, setAssigneeOptions] = useState<AssigneeOption[]>([]);
-  const [assignedTo, setAssignedTo] = useState('');
-  const [dueDate, setDueDate] = useState<string | null>(null);
-  const [recurrence, setRecurrence] = useState<RecurrenceValue>('None');
-  const [recurrenceInterval, setRecurrenceInterval] = useState('1');
-  const [recurrenceDays, setRecurrenceDays] = useState<WeekdayCode[]>([
-    'mon',
-    'tue',
-    'wed',
-    'thu',
-    'fri',
-  ]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [stoppingRepeat, setStoppingRepeat] = useState(false);
 
-  const isOther = category === 'Other';
-  const isWeekdays = recurrence === 'weekdays';
-  const showInterval =
-    recurrence === 'daily' || recurrence === 'weekly' || recurrence === 'monthly';
+  const [task, setTask] = useState<TaskRow | null>(null);
+  const [memberOptions, setMemberOptions] = useState<SharedMemberName[]>([]);
 
-  useEffect(() => {
-    getMergedTaskCategories(TASK_CATEGORIES).then(setCategoryOptions);
-    getHouseholdMemberOptions().then(setAssigneeOptions).catch(console.error);
-  }, []);
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('Other');
+  const [dueDate, setDueDate] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [recurrence, setRecurrence] = useState<TaskRecurrence>(null);
+  const [recurrenceInterval, setRecurrenceInterval] = useState('1');
+
+  function handleBack() {
+    smartBack({
+      navigation,
+      returnTo,
+      fallback: '/tasks',
+    });
+  }
 
   useEffect(() => {
     async function loadTask() {
       try {
         setLoading(true);
 
-        const householdId = await getCurrentHouseholdId();
-        if (!householdId || householdId === 'null' || householdId === 'undefined') {
-          const route = await getNoHouseholdRoute();
-          router.replace(route);
-          return;
-        }
-
         const { data, error } = await supabase
           .from('tasks')
           .select(
-            'id, household_id, title, category, due_date, assigned_to, recurrence, recurrence_days, recurrence_interval'
+            'id, household_id, title, category, due_date, is_completed, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
           )
           .eq('id', id)
           .single();
@@ -107,26 +117,30 @@ export default function EditTaskScreen() {
           return;
         }
 
-        const task = data as LoadedTask;
-
-        const mergedCategories = await getMergedTaskCategories(TASK_CATEGORIES);
-        const inPreset = task.category ? mergedCategories.includes(task.category) : false;
-
-        setTitle(task.title ?? '');
-        setCategory(task.category && !inPreset ? 'Other' : task.category ?? '');
-        setCustomCategory(task.category && !inPreset ? task.category : '');
-        setDueDate(task.due_date ?? null);
-        setAssignedTo(task.assigned_to ?? '');
-        setRecurrence((task.recurrence ?? 'None') as RecurrenceValue);
-        setRecurrenceInterval(String(task.recurrence_interval ?? 1));
-        setRecurrenceDays(
-          task.recurrence_days && task.recurrence_days.length > 0
-            ? task.recurrence_days
-            : ['mon', 'tue', 'wed', 'thu', 'fri']
+        const taskRow = data as TaskRow;
+        setTask(taskRow);
+        setTitle(taskRow.title ?? '');
+        setCategory(taskRow.category ?? 'Other');
+        setDueDate(taskRow.due_date ?? '');
+        setAssignedTo(taskRow.assigned_to ?? '');
+        setRecurrence(taskRow.recurrence ?? null);
+        setRecurrenceInterval(
+          taskRow.recurrence_interval ? String(taskRow.recurrence_interval) : '1'
         );
+
+        const { data: namesData, error: namesError } = await supabase.rpc(
+          'get_shared_household_member_names'
+        );
+
+        if (namesError) {
+          Alert.alert('Load failed', namesError.message);
+          return;
+        }
+
+        setMemberOptions((namesData ?? []) as SharedMemberName[]);
       } catch (error) {
         console.error(error);
-        Alert.alert('Load failed', 'Could not load task.');
+        Alert.alert('Load failed', 'Could not load this task.');
       } finally {
         setLoading(false);
       }
@@ -138,88 +152,158 @@ export default function EditTaskScreen() {
   }, [id]);
 
   async function handleSave() {
+    if (!task) return;
+
     if (!title.trim()) {
       Alert.alert('Missing info', 'Enter a task title.');
       return;
     }
 
-    if (isOther && !customCategory.trim()) {
-      Alert.alert('Missing info', 'Enter a custom category.');
-      return;
-    }
+    const interval =
+      recurrence && recurrence !== 'weekdays'
+        ? Number.parseInt(recurrenceInterval || '1', 10)
+        : 1;
 
-    if (isWeekdays && recurrenceDays.length === 0) {
-      Alert.alert('Missing info', 'Select at least one weekday.');
-      return;
+    if (recurrence && recurrence !== 'weekdays') {
+      if (Number.isNaN(interval) || interval < 1) {
+        Alert.alert('Invalid recurrence', 'Enter a valid repeat interval.');
+        return;
+      }
     }
-
-    const parsedInterval = Number.parseInt(recurrenceInterval.trim(), 10);
-    const finalInterval =
-      Number.isNaN(parsedInterval) || parsedInterval < 1 ? 1 : parsedInterval;
 
     try {
       setSaving(true);
 
-      const finalCategory = isOther ? customCategory.trim() : category || null;
+      const seriesRootId = task.parent_task_id || task.id;
+
+      const updatePayload = {
+        title: title.trim(),
+        category: category || null,
+        due_date: dueDate || null,
+        assigned_to: assignedTo || null,
+        recurrence,
+        recurrence_days:
+          recurrence === 'weekdays'
+            ? (['mon', 'tue', 'wed', 'thu', 'fri'] as WeekdayCode[])
+            : null,
+        recurrence_interval: recurrence ? interval : null,
+      };
 
       const { error } = await supabase
         .from('tasks')
-        .update({
-          title: title.trim(),
-          category: finalCategory,
-          due_date: dueDate,
-          assigned_to: assignedTo || null,
-          recurrence: recurrence === 'None' ? null : recurrence,
-          recurrence_days: isWeekdays ? recurrenceDays : null,
-          recurrence_interval:
-            recurrence === 'None' || isWeekdays ? 1 : finalInterval,
-        })
-        .eq('id', id);
+        .update(updatePayload)
+        .or(`id.eq.${seriesRootId},parent_task_id.eq.${seriesRootId}`);
 
       if (error) {
         Alert.alert('Save failed', error.message);
         return;
       }
 
-      if (isOther && finalCategory) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (session?.user?.id) {
-          await saveCustomTaskCategory(finalCategory, session.user.id);
-        }
-      }
-
-      await refreshTaskNotifications();
-
-      const nextRoute: Href = (returnTo as Href) || '/tasks';
-      router.replace(nextRoute);
+      handleBack();
     } catch (error) {
       console.error(error);
-      Alert.alert('Save failed', 'Could not update task.');
+      Alert.alert('Save failed', 'Could not save this task.');
     } finally {
       setSaving(false);
     }
   }
 
+  async function handleStopRepeating() {
+    if (!task) return;
+
+    Alert.alert(
+      'Stop repeating?',
+      'This task will stay in history, but it will no longer repeat.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Stop repeating',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setStoppingRepeat(true);
+
+              const seriesRootId = task.parent_task_id || task.id;
+
+              const { error } = await supabase
+                .from('tasks')
+                .update({
+                  recurrence: null,
+                  recurrence_days: null,
+                  recurrence_interval: null,
+                  parent_task_id: null,
+                })
+                .or(`id.eq.${seriesRootId},parent_task_id.eq.${seriesRootId}`);
+
+              if (error) {
+                Alert.alert('Update failed', error.message);
+                return;
+              }
+
+              setRecurrence(null);
+              setRecurrenceInterval('1');
+              Alert.alert('Updated', 'This task will no longer repeat.');
+            } catch (error) {
+              console.error(error);
+              Alert.alert('Update failed', 'Could not stop repeating.');
+            } finally {
+              setStoppingRepeat(false);
+            }
+          },
+        },
+      ]
+    );
+  }
+
   if (loading) {
     return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (!task) {
+    return (
       <AppScreen>
-        <FormScreenHeader
-          title="Edit task"
-          subtitle="Loading task details..."
-        />
+        <Pressable onPress={handleBack} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Back</Text>
+        </Pressable>
+        <View style={styles.card}>
+          <Text style={styles.emptyText}>Task not found.</Text>
+        </View>
       </AppScreen>
     );
   }
 
+  const recurrenceLabel = recurrence
+    ? formatRecurrenceLabel({
+        recurrence,
+        recurrenceInterval:
+          recurrence !== 'weekdays'
+            ? Number.parseInt(recurrenceInterval || '1', 10)
+            : 1,
+        recurrenceDays:
+          recurrence === 'weekdays'
+            ? (['mon', 'tue', 'wed', 'thu', 'fri'] as WeekdayCode[])
+            : null,
+      })
+    : null;
+
   return (
     <AppScreen>
-      <FormScreenHeader
-        title="Edit task"
-        subtitle="Update the task details and recurrence."
-      />
+      <Pressable onPress={handleBack} style={styles.backButton}>
+        <Text style={styles.backButtonText}>Back</Text>
+      </Pressable>
+
+      <View style={styles.headerCard}>
+        <Text style={styles.headerTitle}>Edit Task</Text>
+        {recurrenceLabel ? (
+          <View style={styles.repeatBadge}>
+            <Text style={styles.repeatBadgeText}>Repeats: {recurrenceLabel}</Text>
+          </View>
+        ) : null}
+      </View>
 
       <FormInput
         placeholder="Task title"
@@ -231,44 +315,46 @@ export default function EditTaskScreen() {
       <CategoryPicker
         label="Category"
         value={category}
-        onChange={(value) => {
-          setCategory(value);
-          if (value !== 'Other') setCustomCategory('');
-        }}
-        options={categoryOptions}
-        placeholder="Select a category"
+        onChange={(value) => setCategory(value || 'Other')}
+        options={[...TASK_CATEGORIES]}
+        placeholder="Select category"
       />
 
-      {isOther ? (
-        <FormInput
-          placeholder="Enter custom category"
-          value={customCategory}
-          onChangeText={setCustomCategory}
-          returnKeyType="done"
-        />
-      ) : null}
+      <FormInput
+        placeholder="Due date (YYYY-MM-DD)"
+        value={dueDate}
+        onChangeText={setDueDate}
+        returnKeyType="done"
+      />
 
-      <AssigneePicker
-        label="Assign to"
+      <CategoryPicker
+        label="Assigned to"
         value={assignedTo}
-        onChange={setAssignedTo}
-        options={assigneeOptions}
+        onChange={(value) => setAssignedTo(value || '')}
+        options={memberOptions.map((member) => member.id)}
+        optionLabels={Object.fromEntries(
+          memberOptions.map((member) => [
+            member.id,
+            member.full_name || 'Household member',
+          ])
+        )}
         placeholder="Unassigned"
       />
 
-      <DateField label="Due date" value={dueDate} onChange={setDueDate} />
-
       <CategoryPicker
-        label="Repeats"
-        value={recurrence}
-        onChange={(value) => setRecurrence((value || 'None') as RecurrenceValue)}
+        label="Repeat"
+        value={recurrence || ''}
+        onChange={(value) =>
+          setRecurrence((value as Exclude<TaskRecurrence, null> | '') || null)
+        }
         options={[...RECURRENCE_OPTIONS]}
-        placeholder="Select recurrence"
+        optionLabels={RECURRENCE_LABELS}
+        placeholder="Does not repeat"
       />
 
-      {showInterval ? (
+      {recurrence && recurrence !== 'weekdays' ? (
         <FormInput
-          placeholder="Repeat interval (example: 2)"
+          placeholder="Repeat interval"
           value={recurrenceInterval}
           onChangeText={setRecurrenceInterval}
           keyboardType="number-pad"
@@ -276,13 +362,25 @@ export default function EditTaskScreen() {
         />
       ) : null}
 
-      {isWeekdays ? (
-        <WeekdayPicker value={recurrenceDays} onChange={setRecurrenceDays} />
+      {recurrence ? (
+        <Pressable
+          style={[styles.stopRepeatingButton, stoppingRepeat && styles.buttonDisabled]}
+          onPress={handleStopRepeating}
+          disabled={stoppingRepeat}
+        >
+          <Text style={styles.stopRepeatingButtonText}>
+            {stoppingRepeat ? 'Updating...' : 'Stop Repeating'}
+          </Text>
+        </Pressable>
       ) : null}
 
-      <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
-        <Text style={styles.buttonText}>
-          {saving ? 'Saving...' : 'Save Task'}
+      <Pressable
+        style={[styles.primaryButton, saving && styles.buttonDisabled]}
+        onPress={handleSave}
+        disabled={saving}
+      >
+        <Text style={styles.primaryButtonText}>
+          {saving ? 'Saving...' : 'Save Changes'}
         </Text>
       </Pressable>
     </AppScreen>
@@ -290,16 +388,79 @@ export default function EditTaskScreen() {
 }
 
 const styles = StyleSheet.create({
-  button: {
+  center: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: SPACING.md,
+  },
+  backButtonText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  headerCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  repeatBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EAF3F5',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  repeatBadgeText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  emptyText: {
+    color: COLORS.muted,
+    fontSize: 15,
+  },
+  stopRepeatingButton: {
+    backgroundColor: '#FFF4E5',
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  stopRepeatingButtonText: {
+    color: '#B45309',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  primaryButton: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.md,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 8,
   },
-  buttonText: {
+  primaryButtonText: {
     color: COLORS.primaryText,
     fontSize: 16,
     fontWeight: '600',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });
