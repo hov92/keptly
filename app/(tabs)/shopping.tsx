@@ -22,18 +22,27 @@ import {
   type ShoppingListItem,
 } from '../../lib/shopping';
 import type { ShoppingList } from '../../lib/shopping-lists';
+import {
+  generateDueRecurringShoppingItems,
+  markRecurringTemplateCompletedFromItem,
+} from '../../lib/shopping-recurring';
 
 type SharedMemberName = {
   id: string;
   full_name: string | null;
 };
 
-type SectionRow = {
-  title: string;
-  data: ShoppingListItem[];
+type ShoppingItemWithRepeat = ShoppingListItem & {
+  repeat_rule?: 'weekly' | 'biweekly' | 'monthly' | null;
+  generated_by_recurring?: boolean;
 };
 
-type SuggestionItem = ShoppingListItem & {
+type SectionRow = {
+  title: string;
+  data: ShoppingItemWithRepeat[];
+};
+
+type SuggestionItem = ShoppingItemWithRepeat & {
   suggestion_reason: 'recent' | 'favorite';
 };
 
@@ -47,9 +56,18 @@ function normalizeShoppingKey(
   ].join('::');
 }
 
+function formatRepeatRuleLabel(
+  repeatRule: 'weekly' | 'biweekly' | 'monthly' | null | undefined
+) {
+  if (repeatRule === 'weekly') return 'Weekly';
+  if (repeatRule === 'biweekly') return 'Every 2 weeks';
+  if (repeatRule === 'monthly') return 'Monthly';
+  return null;
+}
+
 export default function ShoppingScreen() {
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<ShoppingListItem[]>([]);
+  const [items, setItems] = useState<ShoppingItemWithRepeat[]>([]);
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<ShoppingFilter>('all');
@@ -86,6 +104,8 @@ export default function ShoppingScreen() {
         return;
       }
 
+      await generateDueRecurringShoppingItems(nextHouseholdId);
+
       const [
         { data: listData, error: listError },
         { data: itemData, error: itemError },
@@ -101,7 +121,7 @@ export default function ShoppingScreen() {
         supabase
           .from('shopping_list_items')
           .select(
-            'id, household_id, list_id, title, quantity, unit, category, notes, is_completed, is_favorite, created_by, assigned_to, created_at, updated_at, last_purchased_at'
+            'id, household_id, list_id, title, quantity, unit, category, notes, is_completed, is_favorite, created_by, assigned_to, created_at, updated_at, last_purchased_at, generated_by_recurring, shopping_recurring_templates!left(repeat_rule)'
           )
           .eq('household_id', nextHouseholdId)
           .order('is_completed', { ascending: true })
@@ -145,7 +165,14 @@ export default function ShoppingScreen() {
         ])
       );
 
-      const rows = ((itemData ?? []) as ShoppingListItem[]).map((item) => ({
+      const rows = ((itemData ?? []) as Array<
+        ShoppingListItem & {
+          generated_by_recurring?: boolean | null;
+          shopping_recurring_templates?: {
+            repeat_rule?: 'weekly' | 'biweekly' | 'monthly' | null;
+          }[] | null;
+        }
+      >).map((item) => ({
         ...item,
         created_by_name: item.created_by
           ? (nameMap.get(item.created_by) ?? null)
@@ -153,6 +180,8 @@ export default function ShoppingScreen() {
         assigned_to_name: item.assigned_to
           ? (nameMap.get(item.assigned_to) ?? null)
           : null,
+        repeat_rule: item.shopping_recurring_templates?.[0]?.repeat_rule ?? null,
+        generated_by_recurring: item.generated_by_recurring ?? false,
       }));
 
       setItems(rows);
@@ -170,12 +199,14 @@ export default function ShoppingScreen() {
     }, [])
   );
 
-  async function handleToggleComplete(item: ShoppingListItem) {
+  async function handleToggleComplete(item: ShoppingItemWithRepeat) {
+    const isMarkingDone = !item.is_completed;
+
     const updates: Record<string, unknown> = {
-      is_completed: !item.is_completed,
+      is_completed: isMarkingDone,
     };
 
-    if (!item.is_completed) {
+    if (isMarkingDone) {
       updates.last_purchased_at = new Date().toISOString();
     } else {
       updates.last_purchased_at = null;
@@ -191,10 +222,18 @@ export default function ShoppingScreen() {
       return;
     }
 
+    if (isMarkingDone) {
+      await markRecurringTemplateCompletedFromItem(item.id).catch(console.error);
+
+      if (item.repeat_rule) {
+        Alert.alert('Completed', 'This item will be added back later.');
+      }
+    }
+
     loadData();
   }
 
-  async function handleDelete(item: ShoppingListItem) {
+  async function handleDelete(item: ShoppingItemWithRepeat) {
     Alert.alert('Delete item?', 'This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -294,7 +333,7 @@ export default function ShoppingScreen() {
 
   const duplicateSummary = useMemo(() => {
     const activeOnly = listScopedItems.filter((item) => !item.is_completed);
-    const groups = new Map<string, ShoppingListItem[]>();
+    const groups = new Map<string, ShoppingItemWithRepeat[]>();
 
     for (const item of activeOnly) {
       const key = normalizeShoppingKey(item);
@@ -363,7 +402,7 @@ export default function ShoppingScreen() {
   }, [listScopedItems]);
 
   const sections = useMemo<SectionRow[]>(() => {
-    const groups = new Map<string, ShoppingListItem[]>();
+    const groups = new Map<string, ShoppingItemWithRepeat[]>();
 
     for (const item of filteredItems) {
       const key = item.category?.trim() || 'Other';
@@ -443,6 +482,18 @@ export default function ShoppingScreen() {
       if (failed?.error) {
         Alert.alert('Bulk update failed', failed.error.message);
         return;
+      }
+
+      const newlyCompletedRecurring = selectedItems.filter((item) => !item.is_completed);
+
+      await Promise.all(
+        newlyCompletedRecurring.map((item) =>
+          markRecurringTemplateCompletedFromItem(item.id).catch(console.error)
+        )
+      );
+
+      if (newlyCompletedRecurring.some((item) => !!item.repeat_rule)) {
+        Alert.alert('Completed', 'Recurring items will be added back later.');
       }
 
       exitSelectMode();
@@ -744,13 +795,6 @@ export default function ShoppingScreen() {
               >
                 <Text style={styles.utilityButtonText}>Pantry</Text>
               </Pressable>
-
-              <Pressable
-                style={styles.utilityButton}
-                onPress={() => router.push('/shopping/recurring')}
-              >
-                <Text style={styles.utilityButtonText}>Recurring</Text>
-              </Pressable>
             </View>
 
             <View style={styles.filterSection}>
@@ -848,6 +892,12 @@ export default function ShoppingScreen() {
                       {formatQuantity(item.quantity, item.unit) ? (
                         <Text style={styles.suggestionMeta}>
                           Qty: {formatQuantity(item.quantity, item.unit)}
+                        </Text>
+                      ) : null}
+
+                      {formatRepeatRuleLabel(item.repeat_rule) ? (
+                        <Text style={styles.suggestionMeta}>
+                          Repeats: {formatRepeatRuleLabel(item.repeat_rule)}
                         </Text>
                       ) : null}
 
@@ -978,7 +1028,11 @@ export default function ShoppingScreen() {
 
           return (
             <Pressable
-              style={[styles.card, isSelected && styles.cardSelected]}
+              style={[
+                styles.card,
+                isSelected && styles.cardSelected,
+                item.generated_by_recurring && styles.cardGenerated,
+              ]}
               onLongPress={() => enterSelectMode(item.id)}
               onPress={() => {
                 if (isSelecting) {
@@ -1047,12 +1101,22 @@ export default function ShoppingScreen() {
                 {item.title}
               </Text>
 
+              {item.generated_by_recurring ? (
+                <Text style={styles.generatedMeta}>Added automatically</Text>
+              ) : null}
+
               {quantityLabel ? (
                 <Text style={styles.meta}>Qty: {quantityLabel}</Text>
               ) : null}
 
               {item.notes ? (
                 <Text style={styles.meta}>Notes: {item.notes}</Text>
+              ) : null}
+
+              {formatRepeatRuleLabel(item.repeat_rule) ? (
+                <Text style={styles.repeatMeta}>
+                  Repeats: {formatRepeatRuleLabel(item.repeat_rule)}
+                </Text>
               ) : null}
 
               <Text style={styles.meta}>
@@ -1471,6 +1535,10 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
     backgroundColor: '#F2FAF8',
   },
+  cardGenerated: {
+    backgroundColor: '#FBFCFD',
+    borderColor: '#D9E6EA',
+  },
   cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1527,6 +1595,18 @@ const styles = StyleSheet.create({
   meta: {
     fontSize: 14,
     color: COLORS.muted,
+    marginBottom: 4,
+  },
+  repeatMeta: {
+    fontSize: 13,
+    color: COLORS.primary,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  generatedMeta: {
+    fontSize: 13,
+    color: '#5D7680',
+    fontWeight: '600',
     marginBottom: 4,
   },
   metaBadgesRow: {

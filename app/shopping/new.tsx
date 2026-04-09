@@ -1,89 +1,71 @@
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, Pressable, StyleSheet, Text } from 'react-native';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 
 import { AppScreen } from '../../components/app-screen';
 import { FormInput } from '../../components/form-input';
 import { CategoryPicker } from '../../components/category-picker';
-import { COLORS, RADIUS, SPACING } from '../../constants/theme';
+import { COLORS, RADIUS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
-import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import { SHOPPING_CATEGORIES } from '../../lib/shopping';
 import type { ShoppingList } from '../../lib/shopping-lists';
+import {
+  type ShoppingRepeatRule,
+  upsertRecurringTemplateFromShoppingItem,
+} from '../../lib/shopping-recurring';
+
+const REPEAT_OPTIONS: ShoppingRepeatRule[] = ['weekly', 'biweekly', 'monthly'];
 
 export default function NewShoppingItemScreen() {
-  const { returnTo, listId: initialListId } = useLocalSearchParams<{
-    returnTo?: string;
+  const { listId, returnTo } = useLocalSearchParams<{
     listId?: string;
+    returnTo?: string;
   }>();
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const [lists, setLists] = useState<ShoppingList[]>([]);
-  const [selectedListId, setSelectedListId] = useState('');
 
   const [title, setTitle] = useState('');
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState('');
-  const [category, setCategory] = useState('Produce');
+  const [category, setCategory] = useState('Other');
   const [notes, setNotes] = useState('');
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [lists, setLists] = useState<ShoppingList[]>([]);
+  const [selectedListId, setSelectedListId] = useState('');
+  const [repeatRule, setRepeatRule] = useState<ShoppingRepeatRule | ''>('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     async function loadLists() {
-      try {
-        setLoading(true);
+      const householdId = await getCurrentHouseholdId();
+      if (!householdId) return;
 
-        const householdId = await getCurrentHouseholdId();
+      const { data, error } = await supabase
+        .from('shopping_lists')
+        .select(
+          'id, household_id, name, color, icon, is_default, created_by, created_at, updated_at'
+        )
+        .eq('household_id', householdId)
+        .order('created_at', { ascending: true });
 
-        if (!householdId || householdId === 'null' || householdId === 'undefined') {
-          const route = await getNoHouseholdRoute();
-          router.replace(route);
-          return;
-        }
-
-        const { data, error } = await supabase
-          .from('shopping_lists')
-          .select(
-            'id, household_id, name, color, icon, is_default, created_by, created_at, updated_at'
-          )
-          .eq('household_id', householdId)
-          .order('created_at', { ascending: true });
-
-        if (error) {
-          Alert.alert('Load failed', error.message);
-          return;
-        }
-
-        const nextLists = (data ?? []) as ShoppingList[];
-        setLists(nextLists);
-
-        const preselected =
-          (initialListId &&
-            nextLists.find((list) => list.id === initialListId)?.id) ||
-          nextLists.find((list) => list.is_default)?.id ||
-          nextLists[0]?.id ||
-          '';
-
-        setSelectedListId(preselected);
-      } catch (error) {
-        console.error(error);
-        Alert.alert('Load failed', 'Could not load shopping lists.');
-      } finally {
-        setLoading(false);
+      if (error) {
+        Alert.alert('Load failed', error.message);
+        return;
       }
+
+      const rows = (data ?? []) as ShoppingList[];
+      setLists(rows);
+
+      if (listId && rows.some((list) => list.id === listId)) {
+        setSelectedListId(listId);
+        return;
+      }
+
+      const defaultList = rows.find((list) => list.is_default) ?? rows[0];
+      setSelectedListId(defaultList?.id ?? '');
     }
 
-    loadLists();
-  }, [initialListId]);
+    loadLists().catch(console.error);
+  }, [listId]);
 
   async function handleSave() {
     if (!title.trim()) {
@@ -92,7 +74,7 @@ export default function NewShoppingItemScreen() {
     }
 
     if (!selectedListId) {
-      Alert.alert('Missing list', 'Choose a list for this item.');
+      Alert.alert('Missing info', 'Choose a list.');
       return;
     }
 
@@ -108,10 +90,8 @@ export default function NewShoppingItemScreen() {
       setSaving(true);
 
       const householdId = await getCurrentHouseholdId();
-
-      if (!householdId || householdId === 'null' || householdId === 'undefined') {
-        const route = await getNoHouseholdRoute();
-        router.replace(route);
+      if (!householdId) {
+        Alert.alert('No household', 'Select a household first.');
         return;
       }
 
@@ -119,38 +99,50 @@ export default function NewShoppingItemScreen() {
         data: { session },
       } = await supabase.auth.getSession();
 
-      const { error } = await supabase.from('shopping_list_items').insert({
-        household_id: householdId,
-        list_id: selectedListId,
-        title: title.trim(),
-        quantity: parsedQuantity,
-        unit: unit.trim() || null,
-        category,
-        notes: notes.trim() || null,
-        created_by: session?.user?.id ?? null,
-        is_completed: false,
-      });
+      const { data: insertedItem, error } = await supabase
+        .from('shopping_list_items')
+        .insert({
+          household_id: householdId,
+          list_id: selectedListId,
+          title: title.trim(),
+          quantity: parsedQuantity,
+          unit: unit.trim() || null,
+          category,
+          notes: notes.trim() || null,
+          is_completed: false,
+          is_favorite: isFavorite,
+          created_by: session?.user?.id ?? null,
+          assigned_to: null,
+        })
+        .select('id')
+        .single();
 
       if (error) {
         Alert.alert('Save failed', error.message);
         return;
       }
 
-      router.replace((returnTo as Href) || ('/(tabs)/shopping' as Href));
+      await upsertRecurringTemplateFromShoppingItem({
+        householdId,
+        listId: selectedListId,
+        itemId: insertedItem.id,
+        title: title.trim(),
+        quantity: parsedQuantity,
+        unit: unit.trim() || null,
+        category,
+        notes: notes.trim() || null,
+        isFavorite,
+        repeatRule: repeatRule || null,
+        createdBy: session?.user?.id ?? null,
+      });
+
+      router.replace((returnTo as Href) || '/(tabs)/shopping');
     } catch (error) {
       console.error(error);
-      Alert.alert('Error', 'Could not save this item.');
+      Alert.alert('Error', 'Could not save shopping item.');
     } finally {
       setSaving(false);
     }
-  }
-
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
   }
 
   return (
@@ -185,28 +177,22 @@ export default function NewShoppingItemScreen() {
         placeholder="Select category"
       />
 
-      <Text style={styles.label}>List</Text>
-      <View style={styles.chipWrap}>
-        {lists.map((list) => (
-          <Pressable
-            key={list.id}
-            style={[
-              styles.listChip,
-              selectedListId === list.id && styles.listChipActive,
-            ]}
-            onPress={() => setSelectedListId(list.id)}
-          >
-            <Text
-              style={[
-                styles.listChipText,
-                selectedListId === list.id && styles.listChipTextActive,
-              ]}
-            >
-              {list.name}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <CategoryPicker
+        label="List"
+        value={selectedListId}
+        onChange={(value) => setSelectedListId(value || '')}
+        options={lists.map((list) => list.id)}
+        optionLabels={Object.fromEntries(lists.map((list) => [list.id, list.name]))}
+        placeholder="Select list"
+      />
+
+      <CategoryPicker
+        label="Repeat"
+        value={repeatRule}
+        onChange={(value) => setRepeatRule((value as ShoppingRepeatRule | '') || '')}
+        options={[...REPEAT_OPTIONS]}
+        placeholder="Don't repeat"
+      />
 
       <FormInput
         placeholder="Notes (optional)"
@@ -214,6 +200,20 @@ export default function NewShoppingItemScreen() {
         onChangeText={setNotes}
         multiline
       />
+
+      <Pressable
+        style={[styles.toggleButton, isFavorite && styles.toggleButtonActive]}
+        onPress={() => setIsFavorite((prev) => !prev)}
+      >
+        <Text
+          style={[
+            styles.toggleButtonText,
+            isFavorite && styles.toggleButtonTextActive,
+          ]}
+        >
+          {isFavorite ? 'Favorite: Yes' : 'Favorite: No'}
+        </Text>
+      </Pressable>
 
       <Pressable style={styles.button} onPress={handleSave} disabled={saving}>
         <Text style={styles.buttonText}>
@@ -225,44 +225,6 @@ export default function NewShoppingItemScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: SPACING.sm,
-  },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-    marginBottom: SPACING.md,
-  },
-  listChip: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  listChipActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  listChipText: {
-    color: COLORS.text,
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  listChipTextActive: {
-    color: COLORS.primaryText,
-  },
   button: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.md,
@@ -274,5 +236,26 @@ const styles = StyleSheet.create({
     color: COLORS.primaryText,
     fontSize: 16,
     fontWeight: '600',
+  },
+  toggleButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+    backgroundColor: COLORS.surface,
+  },
+  toggleButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  toggleButtonText: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  toggleButtonTextActive: {
+    color: COLORS.primaryText,
   },
 });

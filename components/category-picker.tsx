@@ -14,6 +14,7 @@ type CategoryPickerProps = {
   onChange: (value: string) => void;
   options: readonly string[];
   placeholder?: string;
+  optionLabels?: Record<string, string>;
 };
 
 export function CategoryPicker({
@@ -22,12 +23,14 @@ export function CategoryPicker({
   onChange,
   options,
   placeholder = 'Select a category',
+  optionLabels,
 }: CategoryPickerProps) {
   const [open, setOpen] = useState(false);
 
   const selectedLabel = useMemo(() => {
-    return value || placeholder;
-  }, [value, placeholder]);
+    if (!value) return placeholder;
+    return optionLabels?.[value] ?? value;
+  }, [value, placeholder, optionLabels]);
 
   function handleSelect(nextValue: string) {
     onChange(nextValue);
@@ -73,6 +76,7 @@ export function CategoryPicker({
 
               {options.map((option) => {
                 const selected = value === option;
+                const optionLabel = optionLabels?.[option] ?? option;
 
                 return (
                   <Pressable
@@ -86,7 +90,7 @@ export function CategoryPicker({
                         selected && styles.optionTextSelected,
                       ]}
                     >
-                      {option}
+                      {optionLabel}
                     </Text>
                   </Pressable>
                 );

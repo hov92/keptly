@@ -9,8 +9,8 @@ import {
   View,
 } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppScreen } from '../../components/app-screen';
 import { getNoHouseholdRoute } from '../../lib/no-household-route';
 import { refreshTaskNotifications } from '../../lib/notification-polish';
 import { supabase } from '../../lib/supabase';
@@ -217,6 +217,10 @@ export default function TasksScreen() {
           return;
         }
 
+        if (task.recurrence) {
+          Alert.alert('Completed', 'This task will appear again later.');
+        }
+
         await refreshTaskNotifications();
         await loadTasks();
         return;
@@ -224,6 +228,11 @@ export default function TasksScreen() {
 
       if (!task.is_completed) {
         await completeTaskWithRecurrence(task);
+
+        if (task.recurrence) {
+          Alert.alert('Completed', 'This task will appear again later.');
+        }
+
         await refreshTaskNotifications();
         await loadTasks();
         return;
@@ -253,6 +262,13 @@ export default function TasksScreen() {
 
   function renderItem({ item }: { item: Task }) {
     const isUpdating = updatingTaskId === item.id;
+    const recurrenceLabel = item.recurrence
+      ? formatRecurrenceLabel({
+          recurrence: item.recurrence,
+          recurrenceDays: item.recurrence_days,
+          recurrenceInterval: item.recurrence_interval,
+        })
+      : null;
 
     return (
       <Pressable
@@ -305,15 +321,8 @@ export default function TasksScreen() {
           <Text style={styles.meta}>Due: {item.due_date}</Text>
         ) : null}
 
-        {item.recurrence ? (
-          <Text style={styles.meta}>
-            Next occurrence •{' '}
-            {formatRecurrenceLabel({
-              recurrence: item.recurrence,
-              recurrenceDays: item.recurrence_days,
-              recurrenceInterval: item.recurrence_interval,
-            })}
-          </Text>
+        {recurrenceLabel ? (
+          <Text style={styles.repeatMeta}>Repeats: {recurrenceLabel}</Text>
         ) : null}
 
         <Text style={styles.meta}>
@@ -332,69 +341,66 @@ export default function TasksScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <AppScreen>
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={styles.title}>Tasks</Text>
+          <Text style={styles.subtitle}>Manage household tasks.</Text>
+        </View>
+
+        {role !== 'child' ? (
+          <Pressable
+            style={styles.addButton}
+            onPress={() => router.push('/tasks/new')}
+          >
+            <Text style={styles.addButtonText}>Add</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.filterRow}>
+        {role !== 'child' ? (
+          <Pressable
+            style={[
+              styles.filterChip,
+              activeFilter === 'all' && styles.filterChipActive,
+            ]}
+            onPress={() => setActiveFilter('all')}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'all' && styles.filterChipTextActive,
+              ]}
+            >
+              All
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <Pressable
+          style={[
+            styles.filterChip,
+            activeFilter === 'assigned' && styles.filterChipActive,
+          ]}
+          onPress={() => setActiveFilter('assigned')}
+        >
+          <Text
+            style={[
+              styles.filterChipText,
+              activeFilter === 'assigned' && styles.filterChipTextActive,
+            ]}
+          >
+            Assigned to me
+          </Text>
+        </Pressable>
+      </View>
+
       <FlatList
         data={visibleTasks}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <>
-            <View style={styles.headerRow}>
-              <View>
-                <Text style={styles.title}>Tasks</Text>
-                <Text style={styles.subtitle}>Manage household tasks.</Text>
-              </View>
-
-              {role !== 'child' ? (
-                <Pressable
-                  style={styles.addButton}
-                  onPress={() => router.push('/tasks/new')}
-                >
-                  <Text style={styles.addButtonText}>Add</Text>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={styles.filterRow}>
-              {role !== 'child' ? (
-                <Pressable
-                  style={[
-                    styles.filterChip,
-                    activeFilter === 'all' && styles.filterChipActive,
-                  ]}
-                  onPress={() => setActiveFilter('all')}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      activeFilter === 'all' && styles.filterChipTextActive,
-                    ]}
-                  >
-                    All
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              <Pressable
-                style={[
-                  styles.filterChip,
-                  activeFilter === 'assigned' && styles.filterChipActive,
-                ]}
-                onPress={() => setActiveFilter('assigned')}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    activeFilter === 'assigned' && styles.filterChipTextActive,
-                  ]}
-                >
-                  Assigned to me
-                </Text>
-              </Pressable>
-            </View>
-          </>
-        }
         renderItem={renderItem}
+        scrollEnabled={false}
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>
@@ -405,19 +411,11 @@ export default function TasksScreen() {
           </View>
         }
       />
-    </SafeAreaView>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  listContent: {
-    padding: SPACING.md,
-    paddingBottom: SPACING.xl,
-  },
   center: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -501,6 +499,12 @@ const styles = StyleSheet.create({
   meta: {
     fontSize: 14,
     color: COLORS.muted,
+    marginBottom: 4,
+  },
+  repeatMeta: {
+    fontSize: 13,
+    color: COLORS.primary,
+    fontWeight: '600',
     marginBottom: 4,
   },
   statusPill: {

@@ -150,6 +150,52 @@ export function formatRecurrenceLabel(params: {
   return 'Does not repeat';
 }
 
+export function getTaskSeriesRootId(task: {
+  id: string;
+  parent_task_id?: string | null;
+}) {
+  return task.parent_task_id || task.id;
+}
+
+export function collapseTaskSeriesToNextOpen<T extends {
+  id: string;
+  due_date: string | null;
+  is_completed: boolean;
+  recurrence: TaskRecurrence;
+  parent_task_id?: string | null;
+}>(tasks: T[]) {
+  const nonRecurring = tasks.filter((task) => !task.recurrence);
+  const recurring = tasks.filter((task) => !!task.recurrence);
+
+  const recurringGroups = new Map<string, T[]>();
+
+  for (const task of recurring) {
+    const seriesKey = getTaskSeriesRootId(task);
+    const existing = recurringGroups.get(seriesKey) ?? [];
+    existing.push(task);
+    recurringGroups.set(seriesKey, existing);
+  }
+
+  const collapsedRecurring = [...recurringGroups.values()]
+    .map((group) =>
+      [...group]
+        .filter((task) => !task.is_completed)
+        .sort((a, b) => {
+          const aDate = a.due_date ?? '9999-12-31';
+          const bDate = b.due_date ?? '9999-12-31';
+          return aDate.localeCompare(bDate);
+        })[0]
+    )
+    .filter(Boolean) as T[];
+
+  return [...nonRecurring, ...collapsedRecurring].sort((a, b) => {
+    const aDate = a.due_date ?? '9999-12-31';
+    const bDate = b.due_date ?? '9999-12-31';
+    if (aDate !== bDate) return aDate.localeCompare(bDate);
+    return 0;
+  });
+}
+
 function getHorizonEndDate(task: {
   due_date: string;
   recurrence: Exclude<TaskRecurrence, null>;
@@ -159,13 +205,6 @@ function getHorizonEndDate(task: {
   }
 
   return addMonths(task.due_date, 12);
-}
-
-function getSeriesRootId(task: {
-  id: string;
-  parent_task_id?: string | null;
-}) {
-  return task.parent_task_id || task.id;
 }
 
 async function getExistingSeriesDates(params: {
@@ -210,7 +249,7 @@ export async function ensureRecurringTaskHorizon(task: {
     return;
   }
 
-  const seriesRootId = getSeriesRootId(task);
+  const seriesRootId = getTaskSeriesRootId(task);
   const horizonEndDate = getHorizonEndDate({
     due_date: task.due_date,
     recurrence: task.recurrence,
