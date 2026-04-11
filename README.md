@@ -1,51 +1,87 @@
-# Keptly 
+# Keptly
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Keptly is a mobile household management app built to help families, couples, roommates, and shared households stay organized. It combines task management, calendar visibility, household records, and member collaboration into one streamlined experience.
 
-## Get started
+Built with **React Native + Expo** and powered by **Supabase**, Keptly is designed to reduce the mental load of managing a home.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## Features
 
-2. Start the app
+- Shared household task management
+- Household creation and member invites
+- Recurring task support
+- Calendar-based task visibility
+- Overdue and upcoming task tracking
+- Household provider and service record management
+- Active household switching
+- Supabase authentication and persistent sessions
 
-   ```bash
-   npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## Screens / Core Modules
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Authentication
+- Sign up and log in with Supabase Auth
+- Persistent session handling
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Households
+- Create a household
+- Invite members
+- Switch between active households
+- Track household membership
 
-## Get a fresh project
+### Tasks
+- Create, edit, delete, and complete tasks
+- Organize tasks by category
+- Set due dates
+- Support recurring schedules
+- Filter tasks by:
+  - Today
+  - Tomorrow
+  - Next 7 Days
+  - Overdue
 
-When you're ready, run:
+### Calendar
+- View tasks in a calendar layout
+- Track deadlines and recurring responsibilities
+- Foundation for future external calendar syncing
+
+### Records
+- Store provider information
+- Track service history
+- Keep household-related records organized
+
+---
+
+## Tech Stack
+
+- **Frontend:** React Native, Expo
+- **Routing:** Expo Router
+- **Backend:** Supabase
+- **Database:** PostgreSQL
+- **Authentication:** Supabase Auth
+- **State Management:** React hooks and local utilities
+
+---
+
+## Project Structure
 
 ```bash
-npm run reset-project
-```
+app/
+  _layout.tsx
+  (tabs)/
+    _layout.tsx
+    index.tsx
+    tasks.tsx
+    calendar.tsx
+    records.tsx
+    profile.tsx
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+components/
+  screen.tsx
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-# keptly
+lib/
+  supabase.ts
+  household.ts
+  task-recurrence.ts
