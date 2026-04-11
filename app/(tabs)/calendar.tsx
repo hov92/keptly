@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,24 +14,37 @@ import { Calendar } from 'react-native-calendars';
 import { Screen } from '../../components/screen';
 import { supabase } from '../../lib/supabase';
 import { getCurrentHouseholdId } from '../../lib/household';
+import { refreshTaskNotifications } from '../../lib/notification-polish';
 import {
+  collapseTaskSeriesToNextOpen,
+  completeTaskWithRecurrence,
   formatRecurrenceLabel,
   WeekdayCode,
 } from '../../lib/task-recurrence';
 
 type Task = {
   id: string;
+  household_id: string;
   title: string;
   category: string | null;
   due_date: string | null;
   is_completed: boolean;
   created_at: string;
+  assigned_to: string | null;
+  created_by: string | null;
   recurrence: 'daily' | 'weekly' | 'monthly' | 'weekdays' | null;
   recurrence_days: WeekdayCode[] | null;
   recurrence_interval: number | null;
+  parent_task_id: string | null;
 };
 
-type FilterKey = 'calendar' | 'today' | 'week' | 'recurring' | 'overdue';
+type FilterKey =
+  | 'calendar'
+  | 'today'
+  | 'tomorrow'
+  | 'next7'
+  | 'recurring'
+  | 'overdue';
 
 function toYMD(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -64,6 +78,19 @@ function formatSectionHeader(dateString: string, today: string) {
   return `${weekday} • ${formatDateLabel(dateString)}`;
 }
 
+function sortTasksByDate(tasks: Task[]) {
+  return [...tasks].sort((a, b) => {
+    const aDate = a.due_date ?? '9999-12-31';
+    const bDate = b.due_date ?? '9999-12-31';
+
+    if (aDate !== bDate) {
+      return aDate.localeCompare(bDate);
+    }
+
+    return b.created_at.localeCompare(a.created_at);
+  });
+}
+
 export default function CalendarScreen() {
   const params = useLocalSearchParams<{ filter?: string }>();
 
@@ -73,6 +100,7 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().slice(0, 10)
   );
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
 
   async function loadTasks() {
     try {
@@ -88,7 +116,7 @@ export default function CalendarScreen() {
       const { data, error } = await supabase
         .from('tasks')
         .select(
-          'id, title, category, due_date, is_completed, created_at, recurrence, recurrence_days, recurrence_interval'
+          'id, household_id, title, category, due_date, is_completed, created_at, assigned_to, created_by, recurrence, recurrence_days, recurrence_interval, parent_task_id'
         )
         .eq('household_id', householdId)
         .not('due_date', 'is', null)
@@ -115,7 +143,8 @@ export default function CalendarScreen() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
-  const weekEnd = shiftDate(today, 6);
+  const tomorrow = shiftDate(today, 1);
+  const next7End = shiftDate(today, 6);
 
   function isOverdue(task: Task) {
     return !task.is_completed && !!task.due_date && task.due_date < today;
@@ -127,18 +156,31 @@ export default function CalendarScreen() {
     if (filter === 'today') {
       setSelectedDate(today);
     }
+
+    if (filter === 'tomorrow') {
+      setSelectedDate(tomorrow);
+    }
   }
 
-  useMemo(() => {
+  useEffect(() => {
     if (params.filter === 'today') applyFilter('today');
-    if (params.filter === 'next7') applyFilter('week');
+    if (params.filter === 'next7') applyFilter('next7');
     if (params.filter === 'overdue') applyFilter('overdue');
   }, [params.filter]);
+
+  const collapsedTasks = useMemo(() => {
+    const openTasks = tasks.filter((task) => !task.is_completed);
+    const completedTasks = tasks.filter((task) => task.is_completed);
+
+    const collapsedOpen = collapseTaskSeriesToNextOpen(openTasks);
+
+    return sortTasksByDate([...collapsedOpen, ...completedTasks]);
+  }, [tasks]);
 
   const markedDates = useMemo(() => {
     const marked: Record<string, any> = {};
 
-    tasks.forEach((task) => {
+    collapsedTasks.forEach((task) => {
       if (!task.due_date) return;
 
       const existing = marked[task.due_date] ?? {
@@ -174,38 +216,88 @@ export default function CalendarScreen() {
     };
 
     return marked;
-  }, [tasks, selectedDate]);
+  }, [collapsedTasks, selectedDate]);
 
   const selectedDateTasks = useMemo(() => {
-    return tasks.filter((task) => task.due_date === selectedDate);
-  }, [tasks, selectedDate]);
+    return sortTasksByDate(
+      collapsedTasks.filter((task) => task.due_date === selectedDate)
+    );
+  }, [collapsedTasks, selectedDate]);
 
   const filteredTasks = useMemo(() => {
     if (activeFilter === 'today') {
-      return tasks.filter((task) => task.due_date === today);
+      return sortTasksByDate(
+        collapsedTasks.filter((task) => task.due_date === today)
+      );
     }
 
-    if (activeFilter === 'week') {
-      return tasks.filter(
-        (task) =>
-          !!task.due_date &&
-          task.due_date >= today &&
-          task.due_date <= weekEnd
+    if (activeFilter === 'tomorrow') {
+      return sortTasksByDate(
+        collapsedTasks.filter((task) => task.due_date === tomorrow)
+      );
+    }
+
+    if (activeFilter === 'next7') {
+      return sortTasksByDate(
+        collapsedTasks.filter(
+          (task) =>
+            !!task.due_date &&
+            !task.is_completed &&
+            task.due_date >= today &&
+            task.due_date <= next7End
+        )
       );
     }
 
     if (activeFilter === 'recurring') {
-      return tasks.filter((task) => !!task.recurrence);
+      return sortTasksByDate(
+        collapsedTasks.filter((task) => !!task.recurrence)
+      );
     }
 
     if (activeFilter === 'overdue') {
-      return tasks.filter(isOverdue);
+      return sortTasksByDate(collapsedTasks.filter(isOverdue));
     }
 
     return [];
-  }, [tasks, activeFilter, today, weekEnd]);
+  }, [collapsedTasks, activeFilter, today, tomorrow, next7End]);
 
   const groupedFilteredTasks = useMemo(() => {
+    if (activeFilter === 'overdue') {
+      const overdue = filteredTasks;
+      const todayItems = collapsedTasks.filter(
+        (task) => !task.is_completed && task.due_date === today
+      );
+      const tomorrowItems = collapsedTasks.filter(
+        (task) => !task.is_completed && task.due_date === tomorrow
+      );
+      const next7Items = collapsedTasks.filter(
+        (task) =>
+          !task.is_completed &&
+          !!task.due_date &&
+          task.due_date > tomorrow &&
+          task.due_date <= next7End
+      );
+      const laterItems = collapsedTasks.filter(
+        (task) =>
+          !task.is_completed &&
+          !!task.due_date &&
+          task.due_date > next7End
+      );
+
+      return [
+        { key: 'overdue', title: 'Overdue', items: overdue },
+        { key: 'today', title: `Today • ${formatDateLabel(today)}`, items: todayItems },
+        {
+          key: 'tomorrow',
+          title: `Tomorrow • ${formatDateLabel(tomorrow)}`,
+          items: tomorrowItems,
+        },
+        { key: 'next7', title: 'Next 7 Days', items: next7Items },
+        { key: 'later', title: 'Later', items: laterItems },
+      ].filter((group) => group.items.length > 0);
+    }
+
     const groups = new Map<string, Task[]>();
 
     filteredTasks.forEach((task) => {
@@ -218,26 +310,68 @@ export default function CalendarScreen() {
     return Array.from(groups.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, items]) => ({
-        date,
+        key: date,
         title: formatSectionHeader(date, today),
-        items,
+        items: sortTasksByDate(items),
       }));
-  }, [filteredTasks, today]);
+  }, [filteredTasks, collapsedTasks, activeFilter, today, tomorrow, next7End]);
+
+  async function handleToggleComplete(item: Task) {
+    try {
+      setUpdatingTaskId(item.id);
+
+      if (!item.is_completed) {
+        await completeTaskWithRecurrence(item);
+
+        if (item.recurrence) {
+          Alert.alert('Completed', 'This task will appear again later.');
+        }
+      } else {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ is_completed: false })
+          .eq('id', item.id);
+
+        if (error) {
+          Alert.alert('Update failed', error.message);
+          return;
+        }
+      }
+
+      await refreshTaskNotifications();
+      await loadTasks();
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : 'Could not update task.';
+      Alert.alert('Update failed', message);
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  }
 
   function renderTask(item: Task) {
     const overdue = isOverdue(item);
+    const isUpdating = updatingTaskId === item.id;
+    const recurrenceLabel = item.recurrence
+      ? formatRecurrenceLabel({
+          recurrence: item.recurrence,
+          recurrenceDays: item.recurrence_days,
+          recurrenceInterval: item.recurrence_interval,
+        })
+      : null;
 
     return (
       <Pressable
         key={item.id}
         onPress={() =>
           router.push({
-  pathname: '/tasks/[id]',
-  params: {
-    id: item.id,
-    returnTo: '/(tabs)/calendar',
-  },
-})
+            pathname: '/tasks/[id]',
+            params: {
+              id: item.id,
+              returnTo: '/(tabs)/calendar',
+            },
+          })
         }
         style={[
           styles.card,
@@ -256,7 +390,7 @@ export default function CalendarScreen() {
             {item.title}
           </Text>
 
-          <View
+          <Pressable
             style={[
               styles.badge,
               item.is_completed
@@ -264,7 +398,10 @@ export default function CalendarScreen() {
                 : overdue
                 ? styles.badgeOverdue
                 : styles.badgeOpen,
+              isUpdating && styles.badgeDisabled,
             ]}
+            onPress={() => handleToggleComplete(item)}
+            disabled={isUpdating}
           >
             <Text
               style={[
@@ -276,9 +413,9 @@ export default function CalendarScreen() {
                   : styles.badgeTextOpen,
               ]}
             >
-              {item.is_completed ? 'Completed' : overdue ? 'Overdue' : 'Open'}
+              {isUpdating ? 'Saving...' : item.is_completed ? 'Completed' : 'Open'}
             </Text>
-          </View>
+          </Pressable>
         </View>
 
         {!!item.category && (
@@ -291,14 +428,9 @@ export default function CalendarScreen() {
           Due: {item.due_date ? formatDateLabel(item.due_date) : '—'}
         </Text>
 
-        {item.recurrence ? (
-          <Text style={[styles.metaText, overdue && styles.metaTextOverdue]}>
-            Repeats:{' '}
-            {formatRecurrenceLabel({
-              recurrence: item.recurrence,
-              recurrenceDays: item.recurrence_days,
-              recurrenceInterval: item.recurrence_interval,
-            })}
+        {recurrenceLabel ? (
+          <Text style={[styles.repeatText, overdue && styles.repeatTextOverdue]}>
+            Repeats: {recurrenceLabel}
           </Text>
         ) : null}
       </Pressable>
@@ -307,11 +439,10 @@ export default function CalendarScreen() {
 
   function getRangeTitle() {
     if (activeFilter === 'today') return 'Today';
-    if (activeFilter === 'week') {
-      return `This week (${formatDateLabel(today)} - ${formatDateLabel(weekEnd)})`;
-    }
+    if (activeFilter === 'tomorrow') return 'Tomorrow';
+    if (activeFilter === 'next7') return 'Next 7 Days';
     if (activeFilter === 'recurring') return 'Recurring tasks';
-    if (activeFilter === 'overdue') return 'Overdue tasks';
+    if (activeFilter === 'overdue') return 'Task Timeline';
     return formatSectionHeader(selectedDate, today);
   }
 
@@ -371,17 +502,34 @@ export default function CalendarScreen() {
           <Pressable
             style={[
               styles.filterChip,
-              activeFilter === 'week' && styles.filterChipActive,
+              activeFilter === 'tomorrow' && styles.filterChipActive,
             ]}
-            onPress={() => applyFilter('week')}
+            onPress={() => applyFilter('tomorrow')}
           >
             <Text
               style={[
                 styles.filterChipText,
-                activeFilter === 'week' && styles.filterChipTextActive,
+                activeFilter === 'tomorrow' && styles.filterChipTextActive,
               ]}
             >
-              This Week
+              Tomorrow
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.filterChip,
+              activeFilter === 'next7' && styles.filterChipActive,
+            ]}
+            onPress={() => applyFilter('next7')}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFilter === 'next7' && styles.filterChipTextActive,
+              ]}
+            >
+              Next 7 Days
             </Text>
           </Pressable>
 
@@ -473,7 +621,7 @@ export default function CalendarScreen() {
               </View>
             ) : (
               groupedFilteredTasks.map((group) => (
-                <View key={group.date} style={styles.groupSection}>
+                <View key={group.key} style={styles.groupSection}>
                   <Text style={styles.groupHeader}>{group.title}</Text>
                   {group.items.map(renderTask)}
                 </View>
@@ -619,6 +767,15 @@ const styles = StyleSheet.create({
   metaTextOverdue: {
     color: '#B42318',
   },
+  repeatText: {
+    fontSize: 13,
+    color: '#264653',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  repeatTextOverdue: {
+    color: '#B42318',
+  },
   badge: {
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -634,6 +791,9 @@ const styles = StyleSheet.create({
   },
   badgeDone: {
     backgroundColor: '#264653',
+  },
+  badgeDisabled: {
+    opacity: 0.6,
   },
   badgeText: {
     fontSize: 12,
